@@ -284,17 +284,22 @@ with open('$SESSION_DIR/meta.json', 'w') as f: json.dump(d, f, ensure_ascii=Fals
 " 2>/dev/null
   echo "🏴‍☠️ Round Table 계속 (Round ${LAST_DONE} → ${TOTAL_ROUNDS})"
 else
-  cat > "$SESSION_DIR/meta.json" <<METAEOF
-{
-  "topic": "$TOPIC",
-  "rounds": $TOTAL_ROUNDS,
-  "agents_config": "$AGENTS_ARG",
-  "project_dir": "$PROJECT_DIR",
-  "started_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-  "status": "running",
-  "agents": $AGENTS_JSON
+  RT_TOPIC="$TOPIC" RT_ROUNDS="$TOTAL_ROUNDS" RT_AGENTS="$AGENTS_ARG" \
+  RT_PROJDIR="$PROJECT_DIR" RT_AGENTS_JSON="$AGENTS_JSON" \
+  python3 -c "
+import json, os, datetime
+data = {
+    'topic': os.environ['RT_TOPIC'],
+    'rounds': int(os.environ['RT_ROUNDS']),
+    'agents_config': os.environ['RT_AGENTS'],
+    'project_dir': os.environ['RT_PROJDIR'],
+    'started_at': datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ'),
+    'status': 'running',
+    'agents': json.loads(os.environ['RT_AGENTS_JSON'])
 }
-METAEOF
+with open('$SESSION_DIR/meta.json', 'w') as f:
+    json.dump(data, f, ensure_ascii=False, indent=2)
+"
   echo "🏴‍☠️ Round Table 시작"
 fi
 echo "   토픽: $TOPIC"

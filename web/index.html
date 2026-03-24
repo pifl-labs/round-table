@@ -127,6 +127,7 @@
   .back-btn:hover { color: var(--text); border-color: var(--accent); }
   .detail-header { margin-bottom: 14px; }
   .detail-header h2 { font-size: 18px; margin-bottom: 6px; }
+  .context-box { background: rgba(99,102,241,0.08); border: 1px solid rgba(99,102,241,0.25); border-radius: 8px; padding: 10px 14px; font-size: 12px; color: var(--muted); white-space: pre-wrap; line-height: 1.6; margin-bottom: 8px; max-height: 120px; overflow-y: auto; }
   .detail-meta { font-size: 12px; color: var(--muted); display: flex; gap: 14px; }
 
   /* Round Progress */
@@ -256,6 +257,7 @@
 
     <div class="detail-header">
       <h2 id="detail-topic"></h2>
+      <div id="detail-context-box" class="context-box" style="display:none"></div>
       <div class="detail-meta">
         <span id="detail-rounds"></span>
         <span id="detail-project"></span>
@@ -310,8 +312,12 @@ let availableAgents = [];
 
 // Markdown renderer
 function renderMd(text) {
-  if (typeof marked !== 'undefined' && marked.parse) return marked.parse(text || '');
-  return '<pre>' + escapeHtml(text || '') + '</pre>';
+  if (typeof marked === 'undefined' || !marked.parse)
+    return '<pre>' + escapeHtml(text || '') + '</pre>';
+  // 단독 ~ (한국어 범위 표기: 1~2, 40~60% 등)를 HTML 엔티티로 이스케이프.
+  // ~~취소선~~ 은 ~가 ~에 인접하므로 lookahead/lookbehind로 보존.
+  const safe = (text || '').replace(/(?<!~)~(?!~)/g, '&#126;');
+  return marked.parse(safe);
 }
 
 function escapeHtml(text) {
@@ -365,7 +371,7 @@ async function loadSessions() {
   }
   el.innerHTML = sessions.map(s => `
     <div class="session-card" onclick="showDetail('${s.id}')">
-      <div class="topic">${escapeHtml(s.topic || 'Unknown')}</div>
+      <div class="topic">${escapeHtml((s.topic || 'Unknown').split('\n')[0])}</div>
       <div class="meta">
         <span class="status ${s.status}"><span class="dot"></span>${s.status}</span>
         <span>${s.rounds || '?'}라운드 토론</span>
@@ -402,7 +408,15 @@ async function showDetail(id) {
 }
 
 function renderDetail(data) {
-  document.getElementById('detail-topic').textContent = data.topic || 'Unknown';
+  const fullTopic = data.topic || 'Unknown';
+  const ctxSep = '\n\n=== 배경 컨텍스트 ===\n';
+  const ctxIdx = fullTopic.indexOf(ctxSep);
+  const mainTopic = ctxIdx >= 0 ? fullTopic.slice(0, ctxIdx) : fullTopic;
+  const ctxText = ctxIdx >= 0 ? fullTopic.slice(ctxIdx + ctxSep.length) : '';
+  document.getElementById('detail-topic').textContent = mainTopic;
+  const ctxBox = document.getElementById('detail-context-box');
+  if (ctxText) { ctxBox.textContent = ctxText; ctxBox.style.display = ''; }
+  else { ctxBox.style.display = 'none'; }
   document.getElementById('detail-rounds').textContent = `${data.rounds || '?'}라운드 토론`;
   document.getElementById('detail-project').textContent = (data.project_dir || '').split('/').pop();
   document.getElementById('detail-time').textContent = data.started_at
