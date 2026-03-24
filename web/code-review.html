@@ -1,0 +1,906 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Code Review — Claude Multi-Agent</title>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<style>
+  :root {
+    --bg: #0f172a; --card: #1e293b; --border: #334155;
+    --text: #e2e8f0; --muted: #94a3b8; --accent: #06b6d4;
+    --purple: #8b5cf6; --green: #22c55e; --red: #ef4444;
+    --yellow: #fbbf24; --orange: #f97316;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Inter', -apple-system, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+
+  .header { padding: 20px 24px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 12px; }
+  .header h1 { font-size: 20px; }
+  .header .icon { font-size: 28px; }
+  .header .sub { color: var(--muted); font-size: 13px; margin-left: auto; }
+  .header .nav-link { color: var(--muted); font-size: 13px; text-decoration: none; padding: 6px 12px; border: 1px solid var(--border); border-radius: 8px; transition: color 0.15s, border-color 0.15s; }
+  .header .nav-link:hover { color: var(--accent); border-color: var(--accent); }
+
+  .container { max-width: 1200px; margin: 0 auto; padding: 24px; }
+
+  /* Form */
+  .new-review { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 24px; margin-bottom: 28px; }
+  .new-review h2 { font-size: 14px; margin-bottom: 18px; color: var(--accent); font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
+
+  .form-topic { margin-bottom: 16px; }
+  .form-topic textarea {
+    width: 100%; padding: 13px 16px; background: var(--bg);
+    border: 1px solid var(--border); border-radius: 10px; color: var(--text);
+    font-size: 15px; resize: none; overflow: hidden; min-height: 52px;
+    line-height: 1.5; font-family: inherit; transition: border-color 0.15s;
+  }
+  .form-topic textarea:focus { outline: none; border-color: var(--accent); }
+  .form-topic textarea::placeholder { color: var(--muted); }
+
+  .form-context { margin-bottom: 16px; }
+  .form-context label { display: block; font-size: 12px; font-weight: 600; color: var(--muted); letter-spacing: 0.04em; text-transform: uppercase; margin-bottom: 6px; }
+  .form-context textarea {
+    width: 100%; padding: 11px 16px; background: var(--bg);
+    border: 1px solid var(--border); border-radius: 10px; color: var(--text);
+    font-size: 13px; resize: vertical; min-height: 80px; max-height: 200px;
+    line-height: 1.6; font-family: inherit; transition: border-color 0.15s;
+  }
+  .form-context textarea:focus { outline: none; border-color: var(--purple); }
+  .form-context textarea::placeholder { color: var(--muted); }
+
+  .form-row3 { display: grid; grid-template-columns: 140px 120px 1fr; gap: 12px; margin-bottom: 20px; align-items: end; }
+  .field-group { display: flex; flex-direction: column; gap: 6px; }
+  .field-group label { font-size: 12px; font-weight: 600; color: var(--muted); letter-spacing: 0.04em; text-transform: uppercase; }
+  .field-group input[type=number] {
+    padding: 10px 14px; background: var(--bg);
+    border: 1px solid var(--border); border-radius: 8px; color: var(--text);
+    font-size: 15px; text-align: center; width: 100%;
+  }
+  .field-group input[type=number]:focus { outline: none; border-color: var(--accent); }
+  .field-group select {
+    padding: 10px 40px 10px 14px; background: var(--bg);
+    border: 1px solid var(--border); border-radius: 8px; color: var(--text);
+    font-size: 14px; width: 100%; cursor: pointer;
+    appearance: none; -webkit-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='7' viewBox='0 0 12 7'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%2394a3b8' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat; background-position: right 14px center;
+  }
+  .field-group select:focus { outline: none; border-color: var(--accent); }
+
+  .form-actions { display: flex; justify-content: flex-end; }
+  .btn {
+    padding: 12px 28px; background: var(--accent); color: #000;
+    border: none; border-radius: 10px; cursor: pointer;
+    font-weight: 700; font-size: 15px; transition: opacity 0.15s;
+  }
+  .btn:hover { opacity: 0.88; }
+  .btn:disabled { opacity: 0.35; cursor: not-allowed; }
+  .btn-purple { background: var(--purple); color: #fff; }
+  .btn-sm { padding: 8px 16px; font-size: 13px; border-radius: 8px; }
+
+  /* Sessions list */
+  .sessions-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+  .sessions-header h2 { font-size: 14px; color: var(--muted); font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
+  .sessions-list { display: grid; gap: 10px; }
+
+  .session-card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+    padding: 16px 20px; cursor: pointer; transition: border-color 0.15s;
+    display: flex; align-items: center; gap: 14px;
+  }
+  .session-card:hover { border-color: var(--accent); }
+  .session-card.active { border-color: var(--accent); background: rgba(6,182,212,0.06); }
+
+  .session-meta { flex: 1; min-width: 0; }
+  .session-topic { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .session-info { font-size: 12px; color: var(--muted); margin-top: 4px; display: flex; gap: 12px; flex-wrap: wrap; }
+  .badge { display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px; border-radius: 99px; font-size: 11px; font-weight: 600; }
+  .badge-running { background: rgba(6,182,212,0.15); color: var(--accent); }
+  .badge-completed { background: rgba(34,197,94,0.15); color: var(--green); }
+  .badge-error { background: rgba(239,68,68,0.15); color: var(--red); }
+  .badge-generating { background: rgba(251,191,36,0.15); color: var(--yellow); }
+  .badge-converged { background: rgba(34,197,94,0.2); color: var(--green); border: 1px solid rgba(34,197,94,0.3); }
+  .badge-gray { background: rgba(148,163,184,0.15); color: var(--muted); }
+
+  /* Session detail */
+  .session-detail { background: var(--card); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
+  .detail-header { padding: 20px 24px; border-bottom: 1px solid var(--border); }
+  .detail-title { font-size: 18px; font-weight: 700; margin-bottom: 8px; }
+  .detail-meta { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+
+  /* Agents panel */
+  .agents-panel { padding: 16px 24px; border-bottom: 1px solid var(--border); }
+  .agents-panel h3 { font-size: 12px; font-weight: 600; color: var(--muted); letter-spacing: 0.04em; text-transform: uppercase; margin-bottom: 10px; }
+  .agents-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px; }
+  .agent-tag {
+    padding: 8px 12px; background: var(--bg); border: 1px solid var(--border);
+    border-radius: 8px; font-size: 12px; display: flex; align-items: center; gap: 8px;
+  }
+  .agent-tag .dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+  .dot-pending { background: var(--muted); }
+  .dot-running { background: var(--accent); animation: blink 1s infinite; }
+  .dot-done { background: var(--green); }
+  .dot-error { background: var(--red); }
+  @keyframes blink { 0%,100% { opacity:1; } 50% { opacity:0.3; } }
+
+  /* Tabs */
+  .tabs { display: flex; border-bottom: 1px solid var(--border); padding: 0 24px; }
+  .tab { padding: 12px 16px; cursor: pointer; font-size: 13px; font-weight: 600; color: var(--muted); border-bottom: 2px solid transparent; transition: color 0.15s, border-color 0.15s; white-space: nowrap; }
+  .tab:hover { color: var(--text); }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+  .tab-content { display: none; padding: 20px 24px; }
+  .tab-content.active { display: block; }
+
+  /* Log panel */
+  .log-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; }
+  .log-box { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; }
+  .log-box-header { padding: 8px 12px; border-bottom: 1px solid var(--border); font-size: 11px; font-weight: 600; color: var(--muted); letter-spacing: 0.04em; text-transform: uppercase; }
+  .log-box-body { padding: 10px 12px; font-family: 'SF Mono', 'Fira Code', monospace; font-size: 11px; color: var(--muted); white-space: pre-wrap; max-height: 200px; overflow-y: auto; line-height: 1.5; }
+
+  /* Round section */
+  .round-section { margin-bottom: 24px; }
+  .round-header { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
+  .round-number { font-size: 13px; font-weight: 700; color: var(--accent); padding: 4px 10px; background: rgba(6,182,212,0.1); border-radius: 6px; }
+  .round-badges { display: flex; gap: 8px; flex-wrap: wrap; }
+  .convergence-bar { height: 4px; border-radius: 2px; background: var(--border); margin-top: 6px; }
+  .convergence-fill { height: 100%; border-radius: 2px; background: linear-gradient(90deg, var(--red), var(--yellow), var(--green)); transition: width 0.5s; }
+
+  .sub-tabs { display: flex; gap: 6px; margin-bottom: 12px; flex-wrap: wrap; }
+  .sub-tab { padding: 6px 12px; font-size: 12px; font-weight: 600; cursor: pointer; border-radius: 6px; background: var(--bg); border: 1px solid var(--border); color: var(--muted); transition: all 0.15s; }
+  .sub-tab:hover { color: var(--text); border-color: var(--text); }
+  .sub-tab.active { background: rgba(6,182,212,0.12); color: var(--accent); border-color: var(--accent); }
+
+  .sub-panel { display: none; }
+  .sub-panel.active { display: block; }
+
+  /* Agent review cards inside a round */
+  .review-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; margin-bottom: 12px; }
+  .review-card { background: var(--bg); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+  .review-card-header { padding: 10px 14px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+  .review-card-name { font-size: 13px; font-weight: 600; }
+  .review-card-body { padding: 12px 14px; font-size: 12px; line-height: 1.7; color: var(--muted); max-height: 300px; overflow-y: auto; }
+  .review-card-body .md-content h3 { font-size: 12px; font-weight: 700; color: var(--text); margin: 10px 0 4px; }
+  .review-card-body .md-content p { margin-bottom: 6px; }
+  .review-card-body .md-content ul { padding-left: 14px; }
+  .review-card-body .md-content li { margin-bottom: 3px; }
+  .review-card-body .md-content strong { color: var(--text); }
+  .review-card-body .md-content code { background: var(--card); padding: 1px 5px; border-radius: 3px; font-size: 11px; }
+
+  /* Vote card */
+  .vote-card { background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 16px; margin-bottom: 12px; }
+  .vote-card h4 { font-size: 12px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 10px; }
+  .vote-stats { display: flex; gap: 16px; margin-bottom: 12px; flex-wrap: wrap; }
+  .vote-stat { display: flex; flex-direction: column; gap: 2px; }
+  .vote-stat-val { font-size: 22px; font-weight: 700; }
+  .vote-stat-label { font-size: 11px; color: var(--muted); }
+  .change-list { display: flex; flex-direction: column; gap: 8px; }
+  .change-item { padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border); }
+  .change-item.severity-critical { border-left: 3px solid var(--red); }
+  .change-item.severity-high { border-left: 3px solid var(--orange); }
+  .change-item.severity-medium { border-left: 3px solid var(--yellow); }
+  .change-item.severity-low { border-left: 3px solid var(--muted); }
+  .change-title { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+  .change-meta { font-size: 11px; color: var(--muted); display: flex; gap: 10px; }
+
+  /* Convergence card */
+  .conv-card { padding: 14px 16px; border-radius: 10px; border: 1px solid var(--border); margin-bottom: 12px; }
+  .conv-card.converged { border-color: var(--green); background: rgba(34,197,94,0.05); }
+  .conv-card.not-converged { border-color: var(--yellow); background: rgba(251,191,36,0.05); }
+  .conv-title { font-size: 14px; font-weight: 700; margin-bottom: 6px; }
+  .conv-desc { font-size: 13px; color: var(--muted); line-height: 1.6; }
+
+  /* Markdown content */
+  .md-render { font-size: 13px; line-height: 1.75; color: var(--text); }
+  .md-render h1, .md-render h2 { font-size: 15px; font-weight: 700; margin: 16px 0 8px; color: var(--text); }
+  .md-render h3 { font-size: 13px; font-weight: 700; margin: 12px 0 6px; color: var(--accent); }
+  .md-render p { margin-bottom: 8px; }
+  .md-render ul, .md-render ol { padding-left: 18px; margin-bottom: 8px; }
+  .md-render li { margin-bottom: 3px; }
+  .md-render strong { font-weight: 700; color: var(--text); }
+  .md-render code { background: #0f172a; border: 1px solid var(--border); padding: 2px 6px; border-radius: 4px; font-size: 11px; font-family: 'SF Mono', monospace; }
+  .md-render pre { background: #0f172a; border: 1px solid var(--border); border-radius: 8px; padding: 12px; overflow-x: auto; margin-bottom: 10px; }
+  .md-render pre code { background: none; border: none; padding: 0; font-size: 12px; }
+  .md-render table { width: 100%; border-collapse: collapse; margin-bottom: 10px; font-size: 12px; }
+  .md-render th { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--border); color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
+  .md-render td { padding: 7px 10px; border-bottom: 1px solid rgba(51,65,85,0.5); }
+  .md-render blockquote { border-left: 3px solid var(--accent); padding-left: 12px; margin: 8px 0; color: var(--muted); font-style: italic; }
+  .md-render a { color: var(--accent); text-decoration: none; }
+
+  /* Generating / agents-ready states */
+  .generating-banner {
+    padding: 16px 20px; background: rgba(251,191,36,0.08); border: 1px solid rgba(251,191,36,0.3);
+    border-radius: 10px; display: flex; align-items: center; gap: 12px; margin-bottom: 16px;
+  }
+  .agents-ready-banner {
+    padding: 20px 24px; background: rgba(6,182,212,0.06); border: 1px solid rgba(6,182,212,0.3);
+    border-radius: 12px; margin-bottom: 16px;
+  }
+  .agents-ready-banner h3 { font-size: 15px; font-weight: 700; color: var(--accent); margin-bottom: 12px; }
+  .agent-persona-card {
+    background: var(--bg); border: 1px solid var(--border); border-radius: 10px;
+    padding: 14px 16px; margin-bottom: 8px;
+  }
+  .agent-persona-header { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+  .agent-persona-name { font-size: 14px; font-weight: 700; }
+  .agent-persona-role { font-size: 12px; color: var(--accent); }
+  .agent-persona-expertise { font-size: 11px; color: var(--muted); margin-bottom: 4px; }
+  .agent-persona-text { font-size: 12px; color: var(--muted); line-height: 1.6; font-style: italic; }
+  .spinner { width: 18px; height: 18px; border: 2px solid var(--border); border-top-color: var(--yellow); border-radius: 50%; animation: spin 0.8s linear infinite; flex-shrink: 0; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .badge-agents-ready { background: rgba(6,182,212,0.15); color: var(--accent); }
+
+  /* Detected issues tags */
+  .issues-tags { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+  .issue-tag { padding: 3px 10px; background: rgba(249,115,22,0.12); color: var(--orange); border-radius: 99px; font-size: 11px; font-weight: 600; }
+
+  /* Quality score */
+  .quality-score { font-size: 28px; font-weight: 800; }
+  .quality-score.low { color: var(--red); }
+  .quality-score.mid { color: var(--yellow); }
+  .quality-score.high { color: var(--green); }
+
+  /* Continue button area */
+  .continue-area { padding: 16px 24px; border-top: 1px solid var(--border); display: flex; align-items: center; gap: 12px; }
+  .continue-area input { width: 80px; padding: 8px 12px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; color: var(--text); text-align: center; font-size: 14px; }
+
+  /* Empty state */
+  .empty { text-align: center; padding: 48px 24px; color: var(--muted); font-size: 14px; }
+  .empty .icon { font-size: 40px; margin-bottom: 12px; opacity: 0.4; }
+
+  @media (max-width: 768px) {
+    .form-row3 { grid-template-columns: 1fr 1fr; }
+    .agents-grid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
+    .review-grid { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <span class="icon">🔍</span>
+  <h1>Code Review</h1>
+  <div class="sub">Multi-Agent 코드 리뷰 &amp; 자동 수정</div>
+  <a href="/" class="nav-link">← Round Table</a>
+</div>
+
+<div class="container">
+  <!-- 새 리뷰 시작 폼 -->
+  <div class="new-review">
+    <h2>새 코드 리뷰 시작</h2>
+    <div class="form-topic">
+      <textarea id="topic" rows="1" placeholder="리뷰 목표 또는 개선 방향 (예: 전반적 코드 품질 향상 및 릴리즈 준비)" oninput="autoResize(this)"></textarea>
+    </div>
+    <div class="form-context">
+      <label>배경 컨텍스트 <span style="font-weight:400;text-transform:none;font-size:11px;color:var(--muted)">선택 — 아키텍처 결정, 특별 고려사항 등</span></label>
+      <textarea id="context" placeholder="예: Riverpod 상태관리 사용 중, 최근 리팩토링으로 레이어가 혼재되어 있음..."></textarea>
+    </div>
+    <div class="form-row3">
+      <div class="field-group">
+        <label>라운드</label>
+        <input type="number" id="rounds" value="2" min="1" max="5">
+      </div>
+      <div class="field-group">
+        <label>에이전트 수</label>
+        <input type="number" id="agentCount" value="5" min="2" max="10">
+      </div>
+      <div class="field-group">
+        <label>프로젝트</label>
+        <select id="project"><option value="">로딩 중...</option></select>
+      </div>
+    </div>
+    <div class="form-actions">
+      <button class="btn" id="startBtn" onclick="startReview()">🔍 리뷰 시작</button>
+    </div>
+  </div>
+
+  <!-- 세션 목록 -->
+  <div class="sessions-header">
+    <h2>리뷰 이력</h2>
+    <button class="btn btn-sm btn-purple" style="background:transparent;color:var(--muted);border:1px solid var(--border)" onclick="loadSessions()">↻ 새로고침</button>
+  </div>
+  <div class="sessions-list" id="sessionsList">
+    <div class="empty"><div class="icon">📋</div>리뷰 이력이 없습니다.</div>
+  </div>
+
+  <!-- 세션 상세 -->
+  <div id="sessionDetail" style="margin-top:24px;display:none">
+    <div class="session-detail">
+      <div class="detail-header">
+        <div class="detail-title" id="detailTitle"></div>
+        <div class="detail-meta" id="detailMeta"></div>
+        <div class="issues-tags" id="detailIssues"></div>
+      </div>
+
+      <div class="agents-panel" id="agentsPanel">
+        <h3>참여 에이전트</h3>
+        <div class="agents-grid" id="agentsGrid"></div>
+      </div>
+
+      <div class="tabs">
+        <div class="tab active" onclick="switchTab('logs')">실시간 로그</div>
+        <div class="tab" onclick="switchTab('rounds')">라운드별 결과</div>
+        <div class="tab" onclick="switchTab('conclusion')">최종 보고서</div>
+      </div>
+
+      <div class="tab-content active" id="tab-logs">
+        <div class="log-grid" id="logGrid">
+          <div class="empty" style="grid-column:1/-1"><div class="icon">📡</div>로그 대기 중...</div>
+        </div>
+      </div>
+
+      <div class="tab-content" id="tab-rounds">
+        <div id="roundsContent"></div>
+      </div>
+
+      <div class="tab-content" id="tab-conclusion">
+        <div id="conclusionContent" class="md-render">
+          <div class="empty"><div class="icon">📄</div>최종 보고서 생성 중...</div>
+        </div>
+      </div>
+
+      <div class="continue-area" id="continueArea" style="display:none">
+        <span style="font-size:13px;color:var(--muted)">추가 라운드:</span>
+        <input type="number" id="addRounds" value="1" min="1" max="5">
+        <button class="btn btn-sm btn-purple" onclick="continueReview()">⟳ 계속 리뷰</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// State
+// ============================================================
+let currentSessionId = null;
+let eventSource = null;
+let activeTab = 'logs';
+let renderedRounds = new Set();
+
+// ============================================================
+// Init
+// ============================================================
+(async function init() {
+  await Promise.all([loadProjects(), loadSessions()]);
+  // Cmd+Enter 단축키
+  document.getElementById('topic').addEventListener('keydown', (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') startReview();
+  });
+})();
+
+function autoResize(el) {
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 200) + 'px';
+}
+
+// ============================================================
+// Projects
+// ============================================================
+async function loadProjects() {
+  try {
+    const res = await fetch('/api/projects');
+    const projects = await res.json();
+    const sel = document.getElementById('project');
+    sel.innerHTML = projects.map(p =>
+      `<option value="${p.path}">${p.name}</option>`
+    ).join('');
+  } catch {}
+}
+
+// ============================================================
+// Sessions
+// ============================================================
+async function loadSessions() {
+  try {
+    const res = await fetch('/api/code-review/sessions');
+    const sessions = await res.json();
+    renderSessionsList(sessions);
+  } catch {}
+}
+
+function renderSessionsList(sessions) {
+  const el = document.getElementById('sessionsList');
+  if (!sessions.length) {
+    el.innerHTML = '<div class="empty"><div class="icon">📋</div>아직 코드 리뷰가 없습니다.</div>';
+    return;
+  }
+  el.innerHTML = sessions.map(s => {
+    const badge = statusBadge(s.status, s.converged);
+    const date = s.started_at ? new Date(s.started_at).toLocaleString('ko') : '';
+    const lang = s.language ? `<span>${s.language}</span>` : '';
+    const rounds = s.current_round != null ? `<span>R${s.current_round}/${s.rounds || '?'}</span>` : '';
+    const quality = s.quality_score ? `<span>품질 ${s.quality_score}/10</span>` : '';
+    return `<div class="session-card ${currentSessionId === s.id ? 'active' : ''}" onclick="openSession('${s.id}')">
+      <div style="font-size:20px">🔍</div>
+      <div class="session-meta">
+        <div class="session-topic">${esc(s.topic || 'Unknown')}</div>
+        <div class="session-info">${date}${lang}${rounds}${quality}</div>
+      </div>
+      ${badge}
+    </div>`;
+  }).join('');
+}
+
+function statusBadge(status, converged) {
+  if (status === 'generating-agents') return '<span class="badge badge-generating">⟳ 에이전트 생성 중</span>';
+  if (status === 'agents-ready') return '<span class="badge badge-agents-ready">👥 에이전트 확인 대기</span>';
+  if (status === 'running') return '<span class="badge badge-running">▶ 리뷰 중</span>';
+  if (status === 'completed' && converged) return '<span class="badge badge-converged">✅ 수렴 완료</span>';
+  if (status === 'completed') return '<span class="badge badge-completed">✓ 완료</span>';
+  if (status === 'error') return '<span class="badge badge-error">✗ 오류</span>';
+  return '<span class="badge badge-gray">⏸ 대기</span>';
+}
+
+// ============================================================
+// Start Review
+// ============================================================
+async function startReview() {
+  const topic = document.getElementById('topic').value.trim();
+  if (!topic) { alert('리뷰 목표를 입력하세요.'); return; }
+  const context = document.getElementById('context').value.trim();
+  const rounds = parseInt(document.getElementById('rounds').value) || 2;
+  const agentCount = parseInt(document.getElementById('agentCount').value) || 5;
+  const projectDir = document.getElementById('project').value;
+
+  const btn = document.getElementById('startBtn');
+  btn.disabled = true; btn.textContent = '⟳ 에이전트 생성 중...';
+
+  try {
+    const res = await fetch('/api/code-review/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ topic, context, rounds, agentCount, projectDir }),
+    });
+    if (res.ok) {
+      const { sessionId } = await res.json();
+      btn.textContent = '✓ 생성 시작됨';
+      setTimeout(() => { btn.disabled = false; btn.textContent = '🔍 리뷰 시작'; }, 3000);
+      // 즉시 세션 열기 (meta.json이 서버에서 생성됨)
+      await loadSessions();
+      if (sessionId) openSession(sessionId);
+    }
+  } catch (e) {
+    console.error(e);
+    btn.disabled = false; btn.textContent = '🔍 리뷰 시작';
+  }
+}
+
+// ============================================================
+// Open Session
+// ============================================================
+async function openSession(id) {
+  currentSessionId = id;
+  document.getElementById('sessionDetail').style.display = 'block';
+  document.getElementById('sessionDetail').scrollIntoView({ behavior: 'smooth' });
+
+  // Reset
+  renderedRounds.clear();
+  document.getElementById('roundsContent').innerHTML = '';
+  document.getElementById('conclusionContent').innerHTML = '<div class="empty"><div class="icon">📄</div>최종 보고서 생성 중...</div>';
+  document.getElementById('logGrid').innerHTML = '<div class="empty" style="grid-column:1/-1"><div class="icon">📡</div>로그 수신 대기 중...</div>';
+
+  // Mark active in list
+  document.querySelectorAll('.session-card').forEach(c => c.classList.remove('active'));
+  document.querySelector(`.session-card[onclick*="${id}"]`)?.classList.add('active');
+
+  const session = await fetchSession(id);
+  if (session) renderSessionDetail(session);
+
+  // Start SSE
+  startSSE(id);
+}
+
+async function fetchSession(id) {
+  try {
+    const res = await fetch(`/api/code-review/session/${id}`);
+    return res.ok ? res.json() : null;
+  } catch { return null; }
+}
+
+function renderSessionDetail(session) {
+  // Title & Meta
+  document.getElementById('detailTitle').textContent = session.topic || 'Unknown';
+
+  const lang = session.language ? `<span class="badge badge-gray">${session.language}</span>` : '';
+  const framework = session.framework ? `<span class="badge badge-gray">${session.framework}</span>` : '';
+  const rds = `<span class="badge badge-gray">R${session.current_round || 0}/${session.rounds || '?'}</span>`;
+  const badge = statusBadge(session.status, session.converged);
+  const qs = session.quality_score ? qualityBadge(session.quality_score) : '';
+  document.getElementById('detailMeta').innerHTML = `${badge}${lang}${framework}${rds}${qs}`;
+
+  // Detected issues
+  const issues = session.detected_issues || [];
+  document.getElementById('detailIssues').innerHTML = issues.length
+    ? issues.map(i => `<span class="issue-tag">${esc(i)}</span>`).join('')
+    : '';
+
+  // Agents panel rendering based on status
+  let agentsPanel = document.getElementById('agentsPanel');
+
+  if (session.status === 'generating-agents') {
+    agentsPanel.innerHTML = `<div class="generating-banner">
+      <div class="spinner"></div>
+      <div>
+        <strong>에이전트 생성 중</strong> — 프로젝트 코드를 분석한 후 최적의 전문가 팀을 동적으로 구성합니다.
+        <div style="font-size:11px;color:var(--muted);margin-top:4px">완료되면 에이전트 페르소나를 확인하고 리뷰를 시작할 수 있습니다.</div>
+      </div>
+    </div>`;
+    return;
+  }
+
+  const agents = session.agents || [];
+  const agentsDetail = (session.agents_detail?.agents || []);
+
+  if (session.status === 'agents-ready' && agents.length) {
+    // 에이전트 확인 단계: 페르소나 카드 + 리뷰 시작 버튼
+    const personaCards = agents.map(a => {
+      const detail = agentsDetail.find(d => d.id === a.id) || {};
+      const expertise = Array.isArray(detail.expertise) ? detail.expertise.join(', ') : (detail.expertise || '');
+      return `<div class="agent-persona-card">
+        <div class="agent-persona-header">
+          <span style="font-size:20px">🤖</span>
+          <div>
+            <div class="agent-persona-name">${esc(a.name)}</div>
+            <div class="agent-persona-role">${esc(a.role || detail.role || '')}</div>
+          </div>
+        </div>
+        ${expertise ? `<div class="agent-persona-expertise">역량: ${esc(expertise)}</div>` : ''}
+        ${detail.focus ? `<div class="agent-persona-expertise">포커스: ${esc(detail.focus)}</div>` : ''}
+        ${(a.persona || detail.persona) ? `<div class="agent-persona-text">"${esc(a.persona || detail.persona)}"</div>` : ''}
+      </div>`;
+    }).join('');
+
+    agentsPanel.innerHTML = `<div class="agents-ready-banner">
+      <h3>👥 에이전트 생성 완료 — 리뷰 팀을 확인하세요</h3>
+      <div style="font-size:13px;color:var(--muted);margin-bottom:16px">
+        프로젝트 분석 결과 <strong>${agents.length}명</strong>의 전문가가 구성되었습니다.
+        각 에이전트의 역할과 페르소나를 확인한 후 리뷰를 시작하세요.
+      </div>
+      ${personaCards}
+      <div style="margin-top:16px;display:flex;align-items:center;gap:12px">
+        <button class="btn" onclick="confirmAndRunReview('${session.id || currentSessionId}')">
+          ▶ 이 팀으로 리뷰 시작
+        </button>
+        <span style="font-size:12px;color:var(--muted)">${session.rounds}라운드 예정 | ${session.language || '언어 감지 중'}</span>
+      </div>
+    </div>`;
+    return;
+  }
+
+  // running / completed 상태: 에이전트 상태 도트 표시
+  if (agents.length) {
+    agentsPanel.innerHTML = `<h3>참여 에이전트 (${agents.length}명)</h3>
+      <div class="agents-grid">${agents.map(a => {
+        const detail = agentsDetail.find(d => d.id === a.id) || {};
+        const dotClass = `dot-${a.status || 'pending'}`;
+        const expertise = Array.isArray(detail.expertise) ? detail.expertise.slice(0,2).join(', ') : '';
+        return `<div class="agent-tag" title="${esc(a.role || detail.role || '')}">
+          <div class="dot ${dotClass}"></div>
+          <div>
+            <div style="font-weight:600;font-size:12px">${esc(a.name)}</div>
+            ${expertise ? `<div style="font-size:10px;color:var(--muted);margin-top:2px">${esc(expertise)}</div>` : ''}
+          </div>
+        </div>`;
+      }).join('')}</div>`;
+  }
+
+  // Rounds
+  renderRounds(session);
+
+  // Conclusion
+  if (session.files?.['conclusion.md']) {
+    document.getElementById('conclusionContent').innerHTML =
+      `<div class="md-render">${marked.parse(session.files['conclusion.md'])}</div>`;
+  }
+
+  // Continue button (completed 상태에서만)
+  const continueArea = document.getElementById('continueArea');
+  continueArea.style.display = session.status === 'completed' ? 'flex' : 'none';
+}
+
+function qualityBadge(score) {
+  const cls = score >= 8 ? 'high' : score >= 6 ? 'mid' : 'low';
+  return `<span class="quality-score ${cls}" style="font-size:18px">${score}/10</span>`;
+}
+
+function renderRounds(session) {
+  const container = document.getElementById('roundsContent');
+  const maxRound = session.current_round || 0;
+  if (maxRound === 0) {
+    container.innerHTML = '<div class="empty"><div class="icon">⏳</div>라운드 진행 대기 중...</div>';
+    return;
+  }
+
+  for (let r = 1; r <= maxRound; r++) {
+    if (renderedRounds.has(r)) continue;
+    const key = `round-${r}`;
+
+    // Collect files for this round
+    const files = session.files || {};
+    const roundFiles = {};
+    for (const [path, content] of Object.entries(files)) {
+      if (path.startsWith(`${key}/`)) {
+        roundFiles[path.replace(`${key}/`, '')] = content;
+      }
+    }
+
+    // Parse votes
+    let votes = null;
+    try { votes = JSON.parse(roundFiles['votes.json'] || '{}'); } catch {}
+
+    // Parse convergence
+    let conv = null;
+    try { conv = JSON.parse(roundFiles['convergence.json'] || '{}'); } catch {}
+
+    const convRate = conv ? Math.round((conv.convergence_rate || 0) * 100) : 0;
+    const isConverged = conv?.converged || false;
+
+    const sectionId = `round-section-${r}`;
+    if (!document.getElementById(sectionId)) {
+      const section = document.createElement('div');
+      section.className = 'round-section';
+      section.id = sectionId;
+      section.innerHTML = buildRoundHTML(r, votes, conv, convRate, isConverged, roundFiles, session);
+      // Prepend or append
+      const existing = document.querySelectorAll('.round-section');
+      if (existing.length && existing[existing.length - 1].id.split('-')[2] < r) {
+        container.appendChild(section);
+      } else {
+        container.appendChild(section);
+      }
+    }
+    renderedRounds.add(r);
+  }
+}
+
+function buildRoundHTML(r, votes, conv, convRate, isConverged, roundFiles, session) {
+  // Agent IDs from session
+  const agentIds = (session.agents || []).map(a => a.id);
+  const agentNames = {};
+  (session.agents || []).forEach(a => { agentNames[a.id] = a.name; });
+
+  // Agents review sub-tab content
+  const agentReviews = agentIds.map(id => {
+    const content = roundFiles[`${id}.md`] || '';
+    if (!content) return '';
+    return `<div class="review-card">
+      <div class="review-card-header">
+        <span class="review-card-name">${esc(agentNames[id] || id)}</span>
+      </div>
+      <div class="review-card-body">
+        <div class="md-content">${marked.parse(content)}</div>
+      </div>
+    </div>`;
+  }).join('');
+
+  // Votes content
+  const agreedChanges = votes?.agreed_changes || [];
+  const rejectedChanges = votes?.rejected_changes || [];
+  const votesHTML = `<div class="vote-card">
+    <h4>투표 결과</h4>
+    <div class="vote-stats">
+      <div class="vote-stat">
+        <div class="vote-stat-val" style="color:var(--accent)">${votes?.overall_quality_score || '?'}</div>
+        <div class="vote-stat-label">품질 점수 /10</div>
+      </div>
+      <div class="vote-stat">
+        <div class="vote-stat-val" style="color:var(--green)">${agreedChanges.length}</div>
+        <div class="vote-stat-label">채택 변경</div>
+      </div>
+      <div class="vote-stat">
+        <div class="vote-stat-val" style="color:var(--muted)">${rejectedChanges.length}</div>
+        <div class="vote-stat-label">기각 변경</div>
+      </div>
+      <div class="vote-stat">
+        <div class="vote-stat-val" style="color:${votes?.release_ready ? 'var(--green)' : 'var(--red)'}">${votes?.release_ready ? '✅' : '❌'}</div>
+        <div class="vote-stat-label">릴리즈 가능</div>
+      </div>
+    </div>
+    ${agreedChanges.length ? `
+    <div style="font-size:12px;font-weight:700;color:var(--green);margin-bottom:8px">✅ 채택 변경사항</div>
+    <div class="change-list">${agreedChanges.map(c => `
+      <div class="change-item severity-${c.severity || 'medium'}">
+        <div class="change-title">${esc(c.title || '')}</div>
+        <div class="change-meta">
+          <span>📄 ${esc(c.file || '?')}</span>
+          <span>👍 ${c.votes || 0}표</span>
+          <span style="color:var(--orange)">${(c.severity || '').toUpperCase()}</span>
+        </div>
+        <div style="font-size:11px;color:var(--muted);margin-top:4px">${esc(c.description || '')}</div>
+      </div>`).join('')}</div>` : '<div style="font-size:12px;color:var(--muted);padding:8px 0">과반수 동의 변경사항 없음</div>'}
+    ${rejectedChanges.length ? `
+    <div style="font-size:12px;font-weight:700;color:var(--muted);margin-top:12px;margin-bottom:6px">❌ 기각 변경사항</div>
+    ${rejectedChanges.map(r => `<div style="font-size:12px;color:var(--muted);padding:4px 0">• ${esc(r.title || '')} (${r.votes || 0}표)</div>`).join('')}` : ''}
+  </div>`;
+
+  // Applied changes
+  const applyContent = roundFiles['apply-changes.md'] || '';
+  const applyHTML = applyContent
+    ? `<div class="md-render">${marked.parse(applyContent)}</div>`
+    : '<div class="empty" style="padding:24px"><div class="icon">⏳</div>변경 적용 대기 중...</div>';
+
+  // Code reviewer
+  const reviewerContent = roundFiles['code-reviewer.md'] || '';
+  const reviewerHTML = reviewerContent
+    ? `<div class="md-render">${marked.parse(reviewerContent)}</div>`
+    : '<div class="empty" style="padding:24px"><div class="icon">⏳</div>코드 리뷰 대기 중...</div>';
+
+  // Convergence
+  let convHTML = '';
+  if (conv && Object.keys(conv).length > 0) {
+    const cls = isConverged ? 'converged' : 'not-converged';
+    const icon = isConverged ? '✅' : '🔄';
+    const issues = conv.remaining_critical_issues || [];
+    convHTML = `<div class="conv-card ${cls}">
+      <div class="conv-title">${icon} ${isConverged ? '수렴 완료' : '미수렴 — 다음 라운드 필요'}</div>
+      <div class="convergence-bar"><div class="convergence-fill" style="width:${convRate}%"></div></div>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px">수렴도 ${convRate}% | 품질 ${conv.quality_score || '?'}/10</div>
+      <div class="conv-desc" style="margin-top:8px">${esc(conv.consensus_summary || '')}</div>
+      ${issues.length ? `<div style="margin-top:8px;font-size:12px;color:var(--red)"><strong>잔존 이슈:</strong> ${issues.map(i => esc(i)).join(', ')}</div>` : ''}
+    </div>`;
+  }
+
+  const panelId = (name) => `r${r}-${name}`;
+  return `<div class="round-header">
+    <span class="round-number">Round ${r}</span>
+    <div class="round-badges">
+      ${votes ? `<span class="badge badge-gray">품질 ${votes.overall_quality_score || '?'}/10</span>` : ''}
+      ${votes?.release_ready ? '<span class="badge badge-converged">릴리즈 가능</span>' : ''}
+      ${agreedChanges.length ? `<span class="badge badge-running">변경 ${agreedChanges.length}건</span>` : ''}
+    </div>
+  </div>
+  <div class="sub-tabs">
+    <div class="sub-tab active" onclick="switchSubTab(this,'${panelId('reviews')}')">에이전트 리뷰 (${agentIds.length})</div>
+    <div class="sub-tab" onclick="switchSubTab(this,'${panelId('votes')}')">투표 결과</div>
+    <div class="sub-tab" onclick="switchSubTab(this,'${panelId('apply')}')">적용된 변경</div>
+    <div class="sub-tab" onclick="switchSubTab(this,'${panelId('reviewer')}')">코드 리뷰어</div>
+    ${conv ? `<div class="sub-tab" onclick="switchSubTab(this,'${panelId('conv')}')">수렴 확인</div>` : ''}
+  </div>
+  <div class="sub-panel active" id="${panelId('reviews')}">
+    <div class="review-grid">${agentReviews}</div>
+  </div>
+  <div class="sub-panel" id="${panelId('votes')}">${votesHTML}</div>
+  <div class="sub-panel" id="${panelId('apply')}">${applyHTML}</div>
+  <div class="sub-panel" id="${panelId('reviewer')}">${reviewerHTML}</div>
+  ${conv ? `<div class="sub-panel" id="${panelId('conv')}">${convHTML}</div>` : ''}`;
+}
+
+function switchSubTab(el, panelId) {
+  const section = el.closest('.round-section');
+  section.querySelectorAll('.sub-tab').forEach(t => t.classList.remove('active'));
+  section.querySelectorAll('.sub-panel').forEach(p => p.classList.remove('active'));
+  el.classList.add('active');
+  document.getElementById(panelId)?.classList.add('active');
+}
+
+// ============================================================
+// SSE Streaming
+// ============================================================
+function startSSE(sessionId) {
+  if (eventSource) { eventSource.close(); eventSource = null; }
+
+  eventSource = new EventSource(`/api/code-review/logs/stream?sessionId=${sessionId}`);
+
+  eventSource.onmessage = (e) => {
+    if (currentSessionId !== sessionId) return;
+    const logs = JSON.parse(e.data);
+    renderLogs(logs);
+  };
+
+  eventSource.addEventListener('session', (e) => {
+    if (currentSessionId !== sessionId) return;
+    const session = JSON.parse(e.data);
+    renderSessionDetail(session);
+    // Update list
+    loadSessions().then(sessions => {
+      if (session.status === 'completed' && eventSource) {
+        eventSource.close(); eventSource = null;
+      }
+    });
+  });
+
+  eventSource.addEventListener('sessions', (e) => {
+    const sessions = JSON.parse(e.data);
+    renderSessionsList(sessions);
+  });
+}
+
+function renderLogs(logs) {
+  const grid = document.getElementById('logGrid');
+  if (!logs || !Object.keys(logs).length) {
+    grid.innerHTML = '<div class="empty" style="grid-column:1/-1"><div class="icon">📡</div>로그 수신 대기 중...</div>';
+    return;
+  }
+
+  // Maintain existing boxes, update content
+  for (const [key, content] of Object.entries(logs)) {
+    const boxId = `log-box-${key.replace(/[^a-z0-9]/g, '-')}`;
+    let box = document.getElementById(boxId);
+    if (!box) {
+      box = document.createElement('div');
+      box.className = 'log-box';
+      box.id = boxId;
+      box.innerHTML = `<div class="log-box-header">${esc(key)}</div><div class="log-box-body" id="${boxId}-body"></div>`;
+      // Clear empty state
+      if (grid.querySelector('.empty')) grid.innerHTML = '';
+      grid.appendChild(box);
+    }
+    const body = document.getElementById(`${boxId}-body`);
+    if (body) {
+      const wasAtBottom = body.scrollHeight - body.clientHeight <= body.scrollTop + 20;
+      body.textContent = content;
+      if (wasAtBottom) body.scrollTop = body.scrollHeight;
+    }
+  }
+}
+
+// ============================================================
+// 에이전트 확인 후 리뷰 시작
+// ============================================================
+async function confirmAndRunReview(sessionId) {
+  const btn = event.currentTarget;
+  btn.disabled = true; btn.textContent = '⟳ 리뷰 시작 중...';
+  try {
+    const res = await fetch('/api/code-review/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionId }),
+    });
+    if (res.ok) {
+      // SSE가 상태 변경을 감지해서 UI 업데이트
+      startSSE(sessionId);
+    } else {
+      const err = await res.json();
+      alert('오류: ' + (err.error || 'Unknown'));
+      btn.disabled = false; btn.textContent = '▶ 이 팀으로 리뷰 시작';
+    }
+  } catch (e) {
+    console.error(e);
+    btn.disabled = false; btn.textContent = '▶ 이 팀으로 리뷰 시작';
+  }
+}
+
+// ============================================================
+// Continue Review
+// ============================================================
+async function continueReview() {
+  if (!currentSessionId) return;
+  const rounds = parseInt(document.getElementById('addRounds').value) || 1;
+  const btn = event.currentTarget;
+  btn.disabled = true; btn.textContent = '시작 중...';
+  try {
+    await fetch('/api/code-review/continue', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionId: currentSessionId, rounds }),
+    });
+    await new Promise(r => setTimeout(r, 1000));
+    document.getElementById('continueArea').style.display = 'none';
+    renderedRounds.clear();
+    startSSE(currentSessionId);
+    await loadSessions();
+  } catch {}
+  btn.disabled = false; btn.textContent = '⟳ 계속 리뷰';
+}
+
+// ============================================================
+// Tab switching
+// ============================================================
+function switchTab(name) {
+  activeTab = name;
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+  event.currentTarget.classList.add('active');
+  document.getElementById(`tab-${name}`)?.classList.add('active');
+}
+
+// ============================================================
+// Util
+// ============================================================
+function esc(str) {
+  return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+</script>
+</body>
+</html>

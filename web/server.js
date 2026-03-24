@@ -3,7 +3,7 @@
 // Usage: node server.js [port]
 
 import { createServer } from "node:http";
-import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, readdirSync, statSync, existsSync } from "node:fs";
 import { join, extname, resolve } from "node:path";
 import { spawn } from "node:child_process";
 
@@ -24,6 +24,7 @@ if (existsSync(envPath)) {
 
 const PORT = parseInt(process.env.PORT || process.argv[2] || "3847", 10);
 const SESSIONS_DIR = join(BASE, "sessions");
+const CR_SESSIONS_DIR = join(BASE, "sessions", "code-review");
 const LOGS_DIR = join(BASE, "logs");
 
 // 프로젝트 루트: PROJECT_DIR 환경변수 > round-table의 상위 디렉토리
@@ -116,7 +117,10 @@ function listProjects() {
 function listSessions() {
   if (!existsSync(SESSIONS_DIR)) return [];
   return readdirSync(SESSIONS_DIR)
-    .filter((d) => statSync(join(SESSIONS_DIR, d)).isDirectory())
+    .filter((d) => {
+      if (d === "code-review") return false; // code-review 세션은 별도 디렉토리
+      try { return statSync(join(SESSIONS_DIR, d)).isDirectory(); } catch { return false; }
+    })
     .sort()
     .reverse()
     .map((d) => {
@@ -204,6 +208,161 @@ function streamLogs(res) {
   });
 }
 
+// --- Code Review API Handlers ---
+
+function listCodeReviewSessions() {
+  if (!existsSync(CR_SESSIONS_DIR)) return [];
+  return readdirSync(CR_SESSIONS_DIR)
+    .filter((d) => {
+      try { return statSync(join(CR_SESSIONS_DIR, d)).isDirectory(); } catch { return false; }
+    })
+    .sort().reverse()
+    .map((d) => {
+      const meta = safeJson(join(CR_SESSIONS_DIR, d, "meta.json")) || {
+        topic: "Unknown", status: "unknown",
+      };
+      return { id: d, ...meta };
+    });
+}
+
+function getCodeReviewSession(id) {
+  const dir = join(CR_SESSIONS_DIR, id);
+  if (!existsSync(dir)) return null;
+  const meta = safeJson(join(dir, "meta.json")) || {};
+  const agents = safeJson(join(dir, "agents.json")) || {};
+
+  const files = {};
+  const collectMd = (d, prefix = "") => {
+    if (!existsSync(d)) return;
+    for (const f of readdirSync(d)) {
+      const full = join(d, f);
+      const rel = prefix ? `${prefix}/${f}` : f;
+      if (statSync(full).isDirectory()) {
+        collectMd(full, rel);
+      } else if (f.endsWith(".md") || f.endsWith(".json")) {
+        files[rel] = safeRead(full) || "";
+      }
+    }
+  };
+  collectMd(dir);
+  return { ...meta, agents_detail: agents, files };
+}
+
+function getCodeReviewLogs(sessionId) {
+  if (!existsSync(LOGS_DIR)) return {};
+  const prefix = `cr-${sessionId}-`;
+  const logs = {};
+  for (const f of readdirSync(LOGS_DIR)) {
+    if (f.startsWith(prefix) && f.endsWith(".log")) {
+      const key = f.replace(prefix, "").replace(".log", "");
+      const raw = safeRead(join(LOGS_DIR, f)) || "";
+      logs[key] = raw.length > 4000 ? raw.slice(-4000) : raw;
+    }
+  }
+  return logs;
+}
+
+function makeSessionId() {
+  const now = new Date();
+  const p = (x, l = 2) => String(x).padStart(l, "0");
+  return `${now.getFullYear()}${p(now.getMonth() + 1)}${p(now.getDate())}_${p(now.getHours())}${p(now.getMinutes())}${p(now.getSeconds())}`;
+}
+
+function startCodeReview({ topic, context = "", rounds = 2, agentCount = 5, projectDir }) {
+  const dir = projectDir && existsSync(projectDir) ? projectDir : WORKSPACE_DIR;
+  const r = Math.min(Math.max(parseInt(rounds) || 2, 1), 9);
+  const n = Math.min(Math.max(parseInt(agentCount) || 5, 2), 12);
+
+  // 서버가 세션 디렉토리와 meta.json을 즉시 생성 (UI가 바로 표시할 수 있도록)
+  const sessionId = makeSessionId();
+  const sessionDir = join(CR_SESSIONS_DIR, sessionId);
+  mkdirSync(sessionDir, { recursive: true });
+  const meta = {
+    type: "code-review",
+    topic,
+    context,
+    rounds: r,
+    agent_count: n,
+    project_dir: dir,
+    started_at: new Date().toISOString(),
+    status: "generating-agents",
+    converged: false,
+    current_round: 0,
+    quality_score: 0,
+    release_ready: false,
+    language: "",
+    framework: "",
+    agents: [],
+  };
+  writeFileSync(join(sessionDir, "meta.json"), JSON.stringify(meta, null, 2));
+
+  // 에이전트 생성만 실행 (run은 UI에서 확인 후 별도 호출)
+  const script = join(BASE, "code-review-orchestrator.sh");
+  const child = spawn("bash", [script, "generate", sessionId], {
+    cwd: BASE, detached: true, stdio: "ignore", env: { ...process.env },
+  });
+  child.unref();
+  return { started: true, pid: child.pid, sessionId, rounds: r, agentCount: n };
+}
+
+function runCodeReview(sessionId) {
+  const sessionDir = join(CR_SESSIONS_DIR, sessionId);
+  if (!existsSync(sessionDir)) return null;
+  const meta = safeJson(join(sessionDir, "meta.json")) || {};
+  if (meta.status !== "agents-ready") return { error: `잘못된 상태: ${meta.status}` };
+  const script = join(BASE, "code-review-orchestrator.sh");
+  const child = spawn("bash", [script, "run", sessionId], {
+    cwd: BASE, detached: true, stdio: "ignore", env: { ...process.env },
+  });
+  child.unref();
+  return { started: true, pid: child.pid, sessionId };
+}
+
+function continueCodeReview({ sessionId, rounds = 1 }) {
+  const sessionDir = join(CR_SESSIONS_DIR, sessionId);
+  if (!existsSync(sessionDir)) return null;
+  const r = Math.min(Math.max(parseInt(rounds) || 1, 1), 9);
+  const script = join(BASE, "code-review-orchestrator.sh");
+  const child = spawn("bash", [script, "--continue", sessionId, String(r)], {
+    cwd: BASE, detached: true, stdio: "ignore", env: { ...process.env },
+  });
+  child.unref();
+  return { started: true, pid: child.pid, sessionId, additionalRounds: r };
+}
+
+function streamCodeReviewLogs(res, sessionId) {
+  res.writeHead(200, {
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache",
+    Connection: "keep-alive",
+    "Access-Control-Allow-Origin": "*",
+  });
+
+  const sendLogs = () => {
+    const logs = getCodeReviewLogs(sessionId || "");
+    res.write(`data: ${JSON.stringify(logs)}\n\n`);
+  };
+  const sendSession = () => {
+    if (!sessionId) return;
+    const session = getCodeReviewSession(sessionId);
+    if (session) res.write(`event: session\ndata: ${JSON.stringify(session)}\n\n`);
+  };
+  const sendSessions = () => {
+    const sessions = listCodeReviewSessions().slice(0, 5);
+    res.write(`event: sessions\ndata: ${JSON.stringify(sessions)}\n\n`);
+  };
+
+  sendLogs();
+  sendSessions();
+  const logInterval = setInterval(sendLogs, 2000);
+  const sessionInterval = setInterval(() => { sendSession(); sendSessions(); }, 3000);
+
+  res.on("close", () => {
+    clearInterval(logInterval);
+    clearInterval(sessionInterval);
+  });
+}
+
 // --- HTTP Server ---
 
 const server = createServer((req, res) => {
@@ -223,6 +382,72 @@ const server = createServer((req, res) => {
   if (path === "/api/agents") return json(listAgents());
   if (path === "/api/projects") return json(listProjects());
   if (path === "/api/sessions") return json(listSessions());
+
+  // Code Review API
+  if (path === "/api/code-review/sessions") return json(listCodeReviewSessions());
+
+  if (path.startsWith("/api/code-review/session/")) {
+    const id = path.split("/")[4];
+    const session = getCodeReviewSession(id);
+    return session ? json(session) : json({ error: "Not found" }, 404);
+  }
+
+  if (path === "/api/code-review/logs") {
+    const sid = url.searchParams.get("sessionId") || "";
+    return json(getCodeReviewLogs(sid));
+  }
+
+  if (path === "/api/code-review/logs/stream") {
+    const sid = url.searchParams.get("sessionId") || "";
+    return streamCodeReviewLogs(res, sid);
+  }
+
+  if (path === "/api/code-review/start" && req.method === "POST") {
+    let body = "";
+    req.on("data", (c) => (body += c));
+    req.on("end", () => {
+      try {
+        const params = JSON.parse(body);
+        if (!params.topic?.trim()) return json({ error: "topic is required" }, 400);
+        return json(startCodeReview(params));
+      } catch (e) {
+        return json({ error: e.message }, 400);
+      }
+    });
+    return;
+  }
+
+  if (path === "/api/code-review/run" && req.method === "POST") {
+    let body = "";
+    req.on("data", (c) => (body += c));
+    req.on("end", () => {
+      try {
+        const { sessionId } = JSON.parse(body);
+        if (!sessionId) return json({ error: "sessionId is required" }, 400);
+        const result = runCodeReview(sessionId);
+        return result ? json(result) : json({ error: "Session not found or invalid status" }, 400);
+      } catch (e) {
+        return json({ error: e.message }, 400);
+      }
+    });
+    return;
+  }
+
+  if (path === "/api/code-review/continue" && req.method === "POST") {
+    let body = "";
+    req.on("data", (c) => (body += c));
+    req.on("end", () => {
+      try {
+        const { sessionId, rounds = 1 } = JSON.parse(body);
+        if (!sessionId) return json({ error: "sessionId is required" }, 400);
+        const result = continueCodeReview({ sessionId, rounds });
+        return result ? json(result) : json({ error: "Session not found" }, 404);
+      } catch (e) {
+        return json({ error: e.message }, 400);
+      }
+    });
+    return;
+  }
 
   if (path.startsWith("/api/session/")) {
     const id = path.split("/")[3];
@@ -272,7 +497,9 @@ const server = createServer((req, res) => {
   }
 
   // Static files
-  const filePath = path === "/" ? "/index.html" : path;
+  const filePath = path === "/" ? "/index.html"
+    : path === "/code-review" ? "/code-review.html"
+    : path;
   const fullPath = join(import.meta.dirname, filePath);
   if (existsSync(fullPath) && statSync(fullPath).isFile()) {
     res.writeHead(200, { "Content-Type": MIME[extname(fullPath)] || "text/plain" });

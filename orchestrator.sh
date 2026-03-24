@@ -379,15 +379,24 @@ for id in "${SELECTED_AGENTS[@]}"; do
   AGENT_LIST+="$(get_agent_name "$id"), "
 done
 AGENT_LIST="${AGENT_LIST%, }"
-SYNTHESIS_PROMPT="당신은 CEO이자 최종 의사결정자입니다. 한국어로 응답하세요.
+SYNTHESIS_PROMPT="[TASK: STRUCTURED DOCUMENT GENERATION]
+당신은 토론 종합 문서 생성기입니다. 한국어로 작성하세요.
 
+출력 규칙 (반드시 준수):
+1. 아래 형식의 마크다운 문서만 출력하세요
+2. 메모리 저장, 도구 호출, 질문, 대화체 응답 절대 금지
+3. '다음 세션', '어느 것부터', '진행하시겠습니까' 등의 표현 사용 금지
+4. 문서 이외의 어떤 내용도 출력하지 마세요
+
+=== 입력 데이터 ===
 토픽: $TOPIC
 참여 전문가: $AGENTS_ARG
 진행 라운드: $TOTAL_ROUNDS
 
 $ALL_CONTEXT
 
-위 ${TOTAL_ROUNDS}라운드 토론 전체를 검토하고 최종 결정을 내려주세요:
+=== 출력할 문서 형식 ===
+아래 형식을 그대로 사용하여 위 토론 데이터를 바탕으로 작성하세요:
 
 ### 최종 결정: [실행 / 조건부 실행 / 보류 / 기각]
 
@@ -410,8 +419,28 @@ $ALL_CONTEXT
 어떤 데이터/상황이 나타나면 이 결정을 재검토할 것인가"
 
 (cd "$PROJECT_DIR" && CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN" \
-    "$CLAUDE_BIN" -p "$SYNTHESIS_PROMPT") \
+    "$CLAUDE_BIN" --allowedTools "" -p "$SYNTHESIS_PROMPT") \
     > "$SESSION_DIR/final/synthesis.md" 2>> "$LOG_DIR/synthesizer.log"
+
+# 훅 아티팩트 제거 (메모리 저장 출력 등이 파일 끝에 붙는 경우 정리)
+python3 - << 'PYEOF'
+import re
+path = "$SESSION_DIR/final/synthesis.md"
+try:
+    with open(path) as f: text = f.read()
+    # 알려진 훅 아티팩트 패턴이 나오면 그 이전까지만 유지
+    cutoff_patterns = [
+        r'\n메모리 저장 완료됐습니다',
+        r'\n✅ 메모리',
+        r'\[DONE\]',
+    ]
+    for pattern in cutoff_patterns:
+        m = re.search(pattern, text)
+        if m:
+            text = text[:m.start()].rstrip()
+    with open(path, 'w') as f: f.write(text)
+except: pass
+PYEOF
 
 cp "$SESSION_DIR/final/synthesis.md" "$SESSION_DIR/conclusion.md" 2>/dev/null
 update_session_status "completed"

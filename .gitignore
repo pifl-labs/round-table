@@ -9,6 +9,9 @@ logs/
 # Playwright
 .playwright-mcp/
 
+# 세션 핸드오프 (로컬 전용)
+HANDOFF.md
+
 # Node
 node_modules/
 web/node_modules/
