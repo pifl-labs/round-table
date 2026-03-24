@@ -176,6 +176,14 @@
   .agent-output-card .card-header { padding: 10px 14px; border-bottom: 1px solid var(--border); font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
   .agent-output-card .card-body { padding: 14px; max-height: 400px; overflow-y: auto; }
   .empty-msg { color: var(--muted); font-size: 13px; text-align: center; padding: 40px; }
+
+  /* Continue debate */
+  .continue-bar { display: flex; align-items: center; gap: 10px; margin: 12px 0 0; padding: 12px 16px; background: rgba(139,92,246,0.08); border: 1px solid rgba(139,92,246,0.3); border-radius: 10px; }
+  .continue-bar label { font-size: 12px; color: var(--purple); font-weight: 700; white-space: nowrap; }
+  .continue-bar input[type=number] { width: 60px; padding: 6px 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-size: 14px; text-align: center; }
+  .continue-bar .btn-continue { padding: 7px 18px; background: var(--purple); color: #fff; border: none; border-radius: 8px; cursor: pointer; font-weight: 700; font-size: 13px; white-space: nowrap; }
+  .continue-bar .btn-continue:hover { opacity: 0.85; }
+  .continue-bar .btn-continue:disabled { opacity: 0.35; cursor: not-allowed; }
 </style>
 </head>
 <body>
@@ -236,6 +244,12 @@
     </div>
 
     <div class="round-progress" id="round-progress"></div>
+    <div id="continue-bar" class="continue-bar" style="display:none">
+      <label>♟️ 추가 라운드</label>
+      <input type="number" id="continue-rounds" value="2" min="1" max="9">
+      <button class="btn-continue" onclick="continueDebate()">계속 토론</button>
+      <span style="font-size:12px; color:var(--muted)">완료된 토론에서 더 깊이 논의합니다</span>
+    </div>
     <div class="agent-badges" id="detail-agents"></div>
 
     <div class="tabs" style="margin-top: 16px;">
@@ -390,6 +404,10 @@ function renderDetail(data) {
   html += `<span class="round-badge synthesis ${hasSynthesis ? 'done' : ''}">최종 종합</span>`;
   progressEl.innerHTML = html;
 
+  // Continue bar — completed 세션에서만 표시
+  document.getElementById('continue-bar').style.display =
+    data.status === 'completed' ? 'flex' : 'none';
+
   // File tree
   const fileKeys = Object.keys(files).filter(f => f !== 'meta.json').sort();
   const tree = document.getElementById('file-tree');
@@ -498,7 +516,16 @@ function startLogStream() {
         (current.agents || []).map(a =>
           `<span class="agent-badge ${a.status}">${AGENT_ICONS[a.id] || '🤖'} ${a.name} (${a.status})</span>`
         ).join('');
-      // Refresh detail if completed
+      // Refresh rounds/files tab content while running
+      const activeTab = document.querySelector('.tabs .tab.active')?.dataset.tab;
+      if (activeTab === 'rounds' || activeTab === 'files') {
+        fetch(`/api/session/${currentSession}`).then(r => r.json()).then(data => {
+          currentSessionData = data;
+          if (activeTab === 'rounds') renderRoundsView(data);
+          else renderDetail(data);
+        });
+      }
+      // Full refresh if just completed
       if (current.status === 'completed' && currentSessionData?.status !== 'completed') {
         showDetail(currentSession);
       }
@@ -527,8 +554,14 @@ function showTab(name) {
     const el = document.getElementById(`tab-${t}`);
     if (el) el.style.display = t === name ? 'block' : 'none';
   });
-  // Refresh rounds view on tab switch
-  if (name === 'rounds' && currentSessionData) renderRoundsView(currentSessionData);
+  // Refresh rounds/files view on tab switch — re-fetch to get latest files
+  if ((name === 'rounds' || name === 'files') && currentSession) {
+    fetch(`/api/session/${currentSession}`).then(r => r.json()).then(data => {
+      currentSessionData = data;
+      if (name === 'rounds') renderRoundsView(data);
+      else renderDetail(data); // re-renders file tree
+    });
+  }
 }
 
 document.querySelectorAll('.tabs .tab').forEach(t => {
@@ -573,6 +606,42 @@ async function startDebate() {
     alert('Error: ' + e.message);
     btn.disabled = false;
     btn.textContent = '토론 시작';
+  }
+}
+
+// ============================================================
+// Continue Debate
+// ============================================================
+async function continueDebate() {
+  if (!currentSession) return;
+  const rounds = parseInt(document.getElementById('continue-rounds').value) || 2;
+  const btn = document.querySelector('.btn-continue');
+  btn.disabled = true;
+  btn.textContent = '시작 중...';
+  try {
+    const res = await fetch('/api/continue', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionId: currentSession, rounds }),
+    });
+    const contentType = res.headers.get('content-type') || '';
+    if (!contentType.includes('application/json')) {
+      alert('서버를 재시작하세요.\nnode server.js');
+      return;
+    }
+    const data = await res.json();
+    if (!res.ok || !data.started) {
+      alert('Error: ' + (data.error || res.status));
+    } else {
+      document.getElementById('continue-bar').style.display = 'none';
+      // 1.5초 후 세션 재로드 (orchestrator가 meta.json status를 running으로 바꿀 시간)
+      setTimeout(() => showDetail(currentSession), 1500);
+    }
+  } catch (e) {
+    alert('Error: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '계속 토론';
   }
 }
 

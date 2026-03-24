@@ -216,6 +216,29 @@ const server = createServer((req, res) => {
   if (path === "/api/logs") return json(getLogs());
   if (path === "/api/logs/stream") return streamLogs(res);
 
+  if (path === "/api/continue" && req.method === "POST") {
+    let body = "";
+    req.on("data", (c) => (body += c));
+    req.on("end", () => {
+      try {
+        const { sessionId, rounds = 2 } = JSON.parse(body);
+        if (!sessionId) return json({ error: "sessionId is required" }, 400);
+        const sessionDir = join(SESSIONS_DIR, sessionId);
+        if (!existsSync(sessionDir)) return json({ error: "Session not found" }, 404);
+        const r = Math.min(Math.max(parseInt(rounds) || 2, 1), 9);
+        const script = join(BASE, "orchestrator.sh");
+        const child = spawn("bash", [script, "--continue", sessionId, String(r)], {
+          cwd: BASE, detached: true, stdio: "ignore",
+        });
+        child.unref();
+        return json({ started: true, pid: child.pid, sessionId, additionalRounds: r });
+      } catch (e) {
+        return json({ error: e.message }, 400);
+      }
+    });
+    return;
+  }
+
   if (path === "/api/start" && req.method === "POST") {
     let body = "";
     req.on("data", (c) => (body += c));
