@@ -156,7 +156,10 @@
   /* Log Viewer */
   .log-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 14px; }
   .log-panel { background: #000; border: 1px solid var(--border); border-radius: 8px; max-height: 380px; overflow: auto; }
-  .log-panel .log-header { padding: 7px 12px; border-bottom: 1px solid var(--border); font-size: 12px; font-weight: 700; color: var(--accent); position: sticky; top: 0; background: #080808; }
+  .log-panel .log-header { padding: 7px 12px; border-bottom: 1px solid var(--border); font-size: 12px; font-weight: 700; color: var(--accent); position: sticky; top: 0; background: #080808; display: flex; align-items: center; justify-content: space-between; }
+  .log-panel .log-header .copy-btn { font-size: 11px; font-weight: 600; color: var(--muted); background: none; border: 1px solid var(--border); border-radius: 4px; padding: 2px 7px; cursor: pointer; transition: color 0.15s, border-color 0.15s; }
+  .log-panel .log-header .copy-btn:hover { color: var(--accent); border-color: var(--accent); }
+  .log-panel .log-header .copy-btn.copied { color: var(--green); border-color: var(--green); }
   .log-panel pre { padding: 12px; font-size: 12px; line-height: 1.5; color: #7adb7a; white-space: pre-wrap; word-break: break-all; }
 
   /* File viewer */
@@ -365,6 +368,11 @@ async function loadSessions() {
 // Detail View
 // ============================================================
 async function showDetail(id) {
+  // 다른 세션으로 전환 시 rounds-view 초기화 (incremental 렌더 전 클리어)
+  if (currentSession !== id) {
+    document.getElementById('rounds-view').innerHTML = '';
+    document.getElementById('log-grid').innerHTML = '';
+  }
   currentSession = id;
   document.getElementById('list-view').style.display = 'none';
   document.getElementById('detail-view').classList.add('active');
@@ -441,39 +449,58 @@ function renderRoundsView(data) {
   const agents = data.agents || [];
   const container = document.getElementById('rounds-view');
 
-  let html = '';
+  // 새로 추가된 카드만 삽입 (기존 카드 재빌드 금지 → 스크롤 위치 보존)
+  let addedAny = false;
   for (let r = 1; r <= rounds; r++) {
     const roundFiles = Object.entries(files).filter(([k]) => k.startsWith(`round-${r}/`));
     if (!roundFiles.length) continue;
 
-    html += `<div class="round-section">
-      <h3>Round ${r} ${r === 1 ? '— 초기 입장' : '— 토론'}</h3>
-      <div class="agent-outputs">`;
+    // round-section이 없으면 생성
+    let section = container.querySelector(`[data-round="${r}"]`);
+    if (!section) {
+      section = document.createElement('div');
+      section.className = 'round-section';
+      section.dataset.round = r;
+      section.innerHTML = `<h3>Round ${r} ${r === 1 ? '— 초기 입장' : '— 토론'}</h3><div class="agent-outputs"></div>`;
+      container.appendChild(section);
+      addedAny = true;
+    }
+    const outputsEl = section.querySelector('.agent-outputs');
 
     for (const [path, content] of roundFiles) {
       const agentId = path.split('/').pop().replace('.md', '');
+      // 카드가 이미 있으면 스킵
+      if (outputsEl.querySelector(`[data-agent-card="${agentId}"]`)) continue;
       const agent = agents.find(a => a.id === agentId) || { name: agentId };
-      html += `<div class="agent-output-card">
-        <div class="card-header">
-          ${AGENT_ICONS[agentId] || '🤖'} ${agent.name}
-        </div>
-        <div class="card-body md-content">${renderMd(content)}</div>
-      </div>`;
+      const card = document.createElement('div');
+      card.className = 'agent-output-card';
+      card.dataset.agentCard = agentId;
+      card.innerHTML = `<div class="card-header">${AGENT_ICONS[agentId] || '🤖'} ${agent.name}</div>
+        <div class="card-body md-content">${renderMd(content)}</div>`;
+      outputsEl.appendChild(card);
+      addedAny = true;
     }
-
-    html += '</div></div>';
   }
 
-  // Final synthesis
+  if (!addedAny && !container.children.length) {
+    container.innerHTML = '<div class="empty-msg">아직 결과가 없습니다.</div>';
+    return;
+  }
+
+  // 최종 종합 카드 (없으면 추가, 있으면 스킵)
   const synth = files['conclusion.md'] || files['final/synthesis.md'];
-  if (synth) {
-    html += `<div class="round-section">
-      <h3>최종 종합 — CEO 결정</h3>
-      <div class="content-panel md-content">${renderMd(synth)}</div>
-    </div>`;
+  if (synth && !container.querySelector('[data-round="final"]')) {
+    const finalSection = document.createElement('div');
+    finalSection.className = 'round-section';
+    finalSection.dataset.round = 'final';
+    finalSection.innerHTML = `<h3>최종 종합 — CEO 결정</h3>
+      <div class="content-panel md-content">${renderMd(synth)}</div>`;
+    container.appendChild(finalSection);
   }
 
-  container.innerHTML = html || '<div class="empty-msg">아직 결과가 없습니다.</div>';
+  if (!container.children.length) {
+    container.innerHTML = '<div class="empty-msg">아직 결과가 없습니다.</div>';
+  }
 }
 
 function showFile(el, id, filename) {
@@ -495,17 +522,39 @@ function startLogStream() {
   eventSource.onmessage = (e) => {
     const logs = JSON.parse(e.data);
     const grid = document.getElementById('log-grid');
-    if (!Object.keys(logs).length) {
+    const entries = Object.entries(logs);
+    if (!entries.length) {
       grid.innerHTML = '<div class="empty-msg">아직 로그가 없습니다.</div>';
       return;
     }
-    grid.innerHTML = Object.entries(logs).map(([name, content]) => `
-      <div class="log-panel">
-        <div class="log-header">${AGENT_ICONS[name] || '📋'} ${name}</div>
-        <pre>${escapeHtml(content.slice(-4000))}</pre>
-      </div>
-    `).join('');
-    grid.querySelectorAll('.log-panel').forEach(p => { p.scrollTop = p.scrollHeight; });
+    // 기존 empty-msg 제거
+    const empty = grid.querySelector('.empty-msg');
+    if (empty) grid.innerHTML = '';
+
+    for (const [name, content] of entries) {
+      let panel = grid.querySelector(`[data-log-agent="${CSS.escape(name)}"]`);
+      if (!panel) {
+        // 새 패널 생성
+        panel = document.createElement('div');
+        panel.className = 'log-panel';
+        panel.dataset.logAgent = name;
+        panel.innerHTML = `
+          <div class="log-header">
+            <span>${AGENT_ICONS[name] || '📋'} ${name}</span>
+            <button class="copy-btn" onclick="copyLog(this)">복사</button>
+          </div>
+          <pre></pre>`;
+        grid.appendChild(panel);
+      }
+      const pre = panel.querySelector('pre');
+      const newText = content.slice(-4000);
+      // 내용이 바뀐 경우에만 업데이트 → 드래그 선택 유지
+      if (pre.textContent !== newText) {
+        const atBottom = pre.scrollHeight - pre.scrollTop - pre.clientHeight < 60;
+        pre.textContent = newText;
+        if (atBottom) pre.scrollTop = pre.scrollHeight;
+      }
+    }
   };
 
   eventSource.addEventListener('sessions', (e) => {
@@ -516,13 +565,17 @@ function startLogStream() {
         (current.agents || []).map(a =>
           `<span class="agent-badge ${a.status}">${AGENT_ICONS[a.id] || '🤖'} ${a.name} (${a.status})</span>`
         ).join('');
-      // Refresh rounds/files tab content while running
+      // 새 파일이 생겼을 때만 라운드/파일 탭 갱신
       const activeTab = document.querySelector('.tabs .tab.active')?.dataset.tab;
       if (activeTab === 'rounds' || activeTab === 'files') {
+        const prevFileCount = Object.keys(currentSessionData?.files || {}).length;
         fetch(`/api/session/${currentSession}`).then(r => r.json()).then(data => {
-          currentSessionData = data;
-          if (activeTab === 'rounds') renderRoundsView(data);
-          else renderDetail(data);
+          const newFileCount = Object.keys(data.files || {}).length;
+          if (newFileCount !== prevFileCount) {
+            currentSessionData = data;
+            if (activeTab === 'rounds') renderRoundsView(data);
+            else renderDetail(data);
+          }
         });
       }
       // Full refresh if just completed
@@ -607,6 +660,29 @@ async function startDebate() {
     btn.disabled = false;
     btn.textContent = '토론 시작';
   }
+}
+
+// ============================================================
+// Log Copy
+// ============================================================
+function copyLog(btn) {
+  const pre = btn.closest('.log-panel').querySelector('pre');
+  navigator.clipboard.writeText(pre.textContent).then(() => {
+    btn.textContent = '✓ 복사됨';
+    btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = '복사'; btn.classList.remove('copied'); }, 2000);
+  }).catch(() => {
+    // fallback
+    const sel = window.getSelection();
+    const range = document.createRange();
+    range.selectNodeContents(pre);
+    sel.removeAllRanges();
+    sel.addRange(range);
+    document.execCommand('copy');
+    sel.removeAllRanges();
+    btn.textContent = '✓';
+    setTimeout(() => { btn.textContent = '복사'; }, 1500);
+  });
 }
 
 // ============================================================
