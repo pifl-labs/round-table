@@ -167,6 +167,8 @@
   .review-card-body .md-content li { margin-bottom: 3px; }
   .review-card-body .md-content strong { color: var(--text); }
   .review-card-body .md-content code { background: var(--card); padding: 1px 5px; border-radius: 3px; font-size: 11px; }
+  .review-card-body .md-content hr { border: none; border-top: 2px solid var(--border); margin: 14px 0; }
+  .review-card-body .md-content del, .review-card-body .md-content s { color: var(--muted); text-decoration: none; font-style: italic; opacity: 0.75; }
 
   /* Vote card */
   .vote-card { background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 16px; margin-bottom: 12px; }
@@ -193,8 +195,10 @@
 
   /* Markdown content */
   .md-render { font-size: 13px; line-height: 1.75; color: var(--text); }
-  .md-render h1, .md-render h2 { font-size: 15px; font-weight: 700; margin: 16px 0 8px; color: var(--text); }
-  .md-render h3 { font-size: 13px; font-weight: 700; margin: 12px 0 6px; color: var(--accent); }
+  .md-render h1 { font-size: 16px; font-weight: 700; margin: 20px 0 10px; color: var(--text); border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+  .md-render h2 { font-size: 14px; font-weight: 700; margin: 18px 0 8px; color: var(--text); }
+  .md-render h3 { font-size: 13px; font-weight: 700; margin: 14px 0 6px; color: var(--accent); }
+  .md-render h4 { font-size: 12px; font-weight: 700; margin: 10px 0 4px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
   .md-render p { margin-bottom: 8px; }
   .md-render ul, .md-render ol { padding-left: 18px; margin-bottom: 8px; }
   .md-render li { margin-bottom: 3px; }
@@ -207,6 +211,41 @@
   .md-render td { padding: 7px 10px; border-bottom: 1px solid rgba(51,65,85,0.5); }
   .md-render blockquote { border-left: 3px solid var(--accent); padding-left: 12px; margin: 8px 0; color: var(--muted); font-style: italic; }
   .md-render a { color: var(--accent); text-decoration: none; }
+  .md-render hr { border: none; border-top: 2px solid var(--border); margin: 22px 0; }
+  .md-render del, .md-render s { text-decoration: none; color: var(--muted); font-style: italic; opacity: 0.75; }
+
+  /* Delete button */
+  .btn-delete {
+    margin-left: auto; flex-shrink: 0;
+    background: none; border: 1px solid transparent; color: var(--muted);
+    cursor: pointer; border-radius: 6px; padding: 4px 8px; font-size: 12px;
+    transition: all 0.15s; line-height: 1;
+  }
+  .btn-delete:hover { color: var(--red); border-color: var(--red); background: rgba(239,68,68,0.08); }
+
+  /* File browser */
+  .file-browser { display: flex; gap: 0; height: 560px; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+  .file-tree {
+    width: 220px; min-width: 180px; flex-shrink: 0;
+    overflow-y: auto; border-right: 1px solid var(--border);
+    background: var(--bg); padding: 8px 0;
+  }
+  .file-viewer { flex: 1; overflow-y: auto; padding: 20px 24px; }
+  .tree-section { margin-bottom: 4px; }
+  .tree-section-label {
+    padding: 6px 12px; font-size: 11px; font-weight: 700;
+    color: var(--accent); letter-spacing: 0.06em; text-transform: uppercase;
+  }
+  .tree-item {
+    display: block; width: 100%; text-align: left;
+    padding: 5px 12px 5px 20px; font-size: 12px; color: var(--muted);
+    background: none; border: none; cursor: pointer; white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis; transition: color 0.1s, background 0.1s;
+  }
+  .tree-item:hover { color: var(--text); background: rgba(255,255,255,0.04); }
+  .tree-item.active { color: var(--accent); background: rgba(6,182,212,0.1); font-weight: 600; }
+  .tree-item.json { color: rgba(148,163,184,0.5); }
+  .tree-item.json:hover { color: var(--muted); }
 
   /* Generating / agents-ready states */
   .generating-banner {
@@ -242,8 +281,20 @@
   .quality-score.high { color: var(--green); }
 
   /* Continue button area */
-  .continue-area { padding: 16px 24px; border-top: 1px solid var(--border); display: flex; align-items: center; gap: 12px; }
-  .continue-area input { width: 80px; padding: 8px 12px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; color: var(--text); text-align: center; font-size: 14px; }
+  /* Continue banner */
+  .continue-banner {
+    margin: 0 24px 0; padding: 14px 20px;
+    background: rgba(139,92,246,0.08); border: 1px solid rgba(139,92,246,0.3);
+    border-radius: 10px; display: flex; align-items: center; justify-content: space-between; gap: 16px;
+    margin-bottom: 0; border-bottom-left-radius: 0; border-bottom-right-radius: 0;
+    border-bottom: none;
+  }
+  .continue-banner-left { display: flex; align-items: center; gap: 12px; }
+  .continue-banner-icon { font-size: 18px; color: var(--green); }
+  .continue-banner-title { font-size: 13px; font-weight: 700; color: var(--text); }
+  .continue-banner-sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .continue-banner-right { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+  .continue-banner input { width: 70px; padding: 7px 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; color: var(--text); text-align: center; font-size: 14px; }
 
   /* Empty state */
   .empty { text-align: center; padding: 48px 24px; color: var(--muted); font-size: 14px; }
@@ -318,9 +369,25 @@
         <div class="agents-grid" id="agentsGrid"></div>
       </div>
 
+      <div class="continue-banner" id="continueBanner" style="display:none">
+        <div class="continue-banner-left">
+          <span class="continue-banner-icon">✓</span>
+          <div>
+            <div class="continue-banner-title">리뷰 완료</div>
+            <div class="continue-banner-sub" id="continueBannerSub">더 깊이 분석하려면 라운드를 추가하세요</div>
+          </div>
+        </div>
+        <div class="continue-banner-right">
+          <span style="font-size:12px;color:var(--muted)">추가 라운드</span>
+          <input type="number" id="addRounds" value="1" min="1" max="5">
+          <button class="btn btn-sm btn-purple" onclick="continueReview()">⟳ 계속 리뷰</button>
+        </div>
+      </div>
+
       <div class="tabs">
         <div class="tab active" onclick="switchTab('logs')">실시간 로그</div>
         <div class="tab" onclick="switchTab('rounds')">라운드별 결과</div>
+        <div class="tab" onclick="switchTab('files')">파일 탐색기</div>
         <div class="tab" onclick="switchTab('conclusion')">최종 보고서</div>
       </div>
 
@@ -334,17 +401,23 @@
         <div id="roundsContent"></div>
       </div>
 
+      <div class="tab-content" id="tab-files">
+        <div class="file-browser" id="fileBrowser">
+          <div class="file-tree" id="fileTree">
+            <div class="empty" style="padding:24px"><div class="icon">📁</div>세션을 선택하세요</div>
+          </div>
+          <div class="file-viewer" id="fileViewer">
+            <div class="empty" style="padding:40px"><div class="icon">📄</div>파일을 선택하세요</div>
+          </div>
+        </div>
+      </div>
+
       <div class="tab-content" id="tab-conclusion">
         <div id="conclusionContent" class="md-render">
           <div class="empty"><div class="icon">📄</div>최종 보고서 생성 중...</div>
         </div>
       </div>
 
-      <div class="continue-area" id="continueArea" style="display:none">
-        <span style="font-size:13px;color:var(--muted)">추가 라운드:</span>
-        <input type="number" id="addRounds" value="1" min="1" max="5">
-        <button class="btn btn-sm btn-purple" onclick="continueReview()">⟳ 계속 리뷰</button>
-      </div>
     </div>
   </div>
 </div>
@@ -418,6 +491,7 @@ function renderSessionsList(sessions) {
         <div class="session-info">${date}${lang}${rounds}${quality}</div>
       </div>
       ${badge}
+      <button class="btn-delete" title="세션 삭제" onclick="deleteSession('${s.id}', event)">✕</button>
     </div>`;
   }).join('');
 }
@@ -588,15 +662,26 @@ function renderSessionDetail(session) {
   // Rounds
   renderRounds(session);
 
+  // File tree
+  renderFileTree(session);
+
   // Conclusion
   if (session.files?.['conclusion.md']) {
     document.getElementById('conclusionContent').innerHTML =
       `<div class="md-render">${marked.parse(session.files['conclusion.md'])}</div>`;
   }
 
-  // Continue button (completed 상태에서만)
-  const continueArea = document.getElementById('continueArea');
-  continueArea.style.display = session.status === 'completed' ? 'flex' : 'none';
+  // Continue banner (completed 상태에서만)
+  const continueBanner = document.getElementById('continueBanner');
+  if (session.status === 'completed') {
+    const rounds = session.rounds || 0;
+    const qs = session.quality_score ? `품질 ${session.quality_score}/10 · ` : '';
+    document.getElementById('continueBannerSub').textContent =
+      `${qs}${rounds}라운드 완료 — 미해결 이슈가 있다면 라운드를 추가하세요`;
+    continueBanner.style.display = 'flex';
+  } else {
+    continueBanner.style.display = 'none';
+  }
 }
 
 function qualityBadge(score) {
@@ -792,6 +877,8 @@ function startSSE(sessionId) {
     if (currentSessionId !== sessionId) return;
     const session = JSON.parse(e.data);
     renderSessionDetail(session);
+    // Refresh file tree if that tab is active
+    if (activeTab === 'files') renderFileTree(session);
     // Update list
     loadSessions().then(sessions => {
       if (session.status === 'completed' && eventSource) {
@@ -862,6 +949,98 @@ async function confirmAndRunReview(sessionId) {
 }
 
 // ============================================================
+// Delete Session
+// ============================================================
+async function deleteSession(id, event) {
+  event.stopPropagation();
+  if (!confirm(`세션 "${id}"을 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.`)) return;
+  try {
+    const res = await fetch(`/api/code-review/session/${id}`, { method: 'DELETE' });
+    if (res.ok) {
+      if (currentSessionId === id) {
+        currentSessionId = null;
+        document.getElementById('sessionDetail').style.display = 'none';
+        if (eventSource) { eventSource.close(); eventSource = null; }
+      }
+      await loadSessions();
+    } else {
+      const { error } = await res.json();
+      alert(`삭제 실패: ${error}`);
+    }
+  } catch (e) {
+    alert(`삭제 실패: ${e.message}`);
+  }
+}
+
+// ============================================================
+// File Tree
+// ============================================================
+let currentSession = null;
+
+function renderFileTree(session) {
+  currentSession = session;
+  const files = session.files || {};
+  const tree = document.getElementById('fileTree');
+
+  // Group by section
+  const sections = {};
+  for (const path of Object.keys(files).sort()) {
+    const parts = path.split('/');
+    let section;
+    if (parts.length === 1) {
+      section = 'ROOT';
+    } else {
+      section = parts[0].toUpperCase();
+    }
+    if (!sections[section]) sections[section] = [];
+    sections[section].push(path);
+  }
+
+  // Sort sections: ROOT first, then FINAL, then ROUND-* ascending
+  const sectionOrder = Object.keys(sections).sort((a, b) => {
+    if (a === 'ROOT') return -1;
+    if (b === 'ROOT') return 1;
+    if (a === 'FINAL') return -1;
+    if (b === 'FINAL') return 1;
+    return a.localeCompare(b);
+  });
+
+  tree.innerHTML = sectionOrder.map(section => {
+    const items = sections[section].map(path => {
+      const name = path.split('/').pop();
+      const isJson = name.endsWith('.json');
+      return `<button class="tree-item ${isJson ? 'json' : ''}" onclick="showFile('${path}')" title="${path}">${name}</button>`;
+    }).join('');
+    return `<div class="tree-section">
+      <div class="tree-section-label">${section}</div>
+      ${items}
+    </div>`;
+  }).join('');
+}
+
+function showFile(path) {
+  if (!currentSession) return;
+  const content = currentSession.files?.[path] || '';
+
+  // Mark active
+  document.querySelectorAll('.tree-item').forEach(el => el.classList.remove('active'));
+  document.querySelector(`.tree-item[onclick="showFile('${path}')"]`)?.classList.add('active');
+
+  const viewer = document.getElementById('fileViewer');
+  const name = path.split('/').pop();
+
+  if (name.endsWith('.json')) {
+    let pretty = content;
+    try { pretty = JSON.stringify(JSON.parse(content), null, 2); } catch {}
+    viewer.innerHTML = `<div style="font-size:11px;color:var(--muted);margin-bottom:12px;font-family:monospace">${path}</div>
+      <pre style="font-size:11px;line-height:1.6;color:var(--text);margin:0;white-space:pre-wrap">${esc(pretty)}</pre>`;
+  } else {
+    viewer.innerHTML = `<div style="font-size:11px;color:var(--muted);margin-bottom:12px;font-family:monospace">${path}</div>
+      <div class="md-render">${marked.parse(content)}</div>`;
+  }
+}
+
+// ============================================================
 // Continue Review
 // ============================================================
 async function continueReview() {
@@ -876,7 +1055,7 @@ async function continueReview() {
       body: JSON.stringify({ sessionId: currentSessionId, rounds }),
     });
     await new Promise(r => setTimeout(r, 1000));
-    document.getElementById('continueArea').style.display = 'none';
+    document.getElementById('continueBanner').style.display = 'none';
     renderedRounds.clear();
     startSSE(currentSessionId);
     await loadSessions();

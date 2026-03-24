@@ -541,6 +541,7 @@ print(len(d.get('agreed_changes', [])))
   # ----------------------------------------------------------
   # 2c. 변경사항 적용 (--dangerously-skip-permissions: 파일 편집 필요)
   # ----------------------------------------------------------
+  APPLIER_LOG="$LOG_DIR/${LOG_PREFIX}-applier.log"
   if [ "$AGREED_COUNT" -gt 0 ]; then
     log_progress "[R${round}] 변경사항 적용 중 (${AGREED_COUNT}개)..."
 
@@ -556,6 +557,17 @@ for i, c in enumerate(d.get('agreed_changes', []), 1):
     print()
 PYEOF
 )
+
+    # APPLIER 시작 로그
+    {
+      echo "[$(date +%H:%M:%S)] [R${round}] APPLIER 시작 — ${AGREED_COUNT}개 변경사항 적용 예정"
+      echo "[$(date +%H:%M:%S)] 프로젝트: $PROJECT_DIR | 언어: $LANGUAGE"
+      echo ""
+      echo "=== 적용 대상 ==="
+      echo "$AGREED_DETAILS"
+      echo "=================="
+      echo ""
+    } >> "$APPLIER_LOG"
 
     APPLY_PROMPT="당신은 코드 수정 전문가입니다. 한국어로 응답하세요.
 
@@ -590,9 +602,20 @@ ${AGREED_DETAILS}
     (cd "$PROJECT_DIR" && CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN" \
       "$CLAUDE_BIN" --dangerously-skip-permissions -p "$APPLY_PROMPT") \
       > "$SESSION_DIR/round-${round}/apply-changes.md" \
-      2>>"$LOG_DIR/${LOG_PREFIX}-applier.log"
+      2>>"$APPLIER_LOG"
+    APPLY_EXIT=$?
+
+    if [ "$APPLY_EXIT" -eq 0 ]; then
+      echo "[$(date +%H:%M:%S)] [R${round}] APPLIER 완료 ✓ (exit: 0)" >> "$APPLIER_LOG"
+      echo "[$(date +%H:%M:%S)] 결과: $SESSION_DIR/round-${round}/apply-changes.md" >> "$APPLIER_LOG"
+    else
+      echo "[$(date +%H:%M:%S)] [R${round}] APPLIER 실패 (exit: $APPLY_EXIT)" >> "$APPLIER_LOG"
+    fi
     log_progress "[R${round}] 변경사항 적용 완료"
   else
+    {
+      echo "[$(date +%H:%M:%S)] [R${round}] 채택된 변경사항 없음 — 코드 수정 스킵"
+    } >> "$APPLIER_LOG"
     printf '# 이번 라운드 적용 변경사항 없음\n\n과반수 동의 변경사항이 없어 코드 수정 생략.\n' \
       > "$SESSION_DIR/round-${round}/apply-changes.md"
     log_progress "[R${round}] 합의된 변경사항 없음"

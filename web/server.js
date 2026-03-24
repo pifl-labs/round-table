@@ -3,7 +3,7 @@
 // Usage: node server.js [port]
 
 import { createServer } from "node:http";
-import { readFileSync, writeFileSync, mkdirSync, readdirSync, statSync, existsSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, rmSync, readdirSync, statSync, existsSync } from "node:fs";
 import { join, extname, resolve } from "node:path";
 import { spawn } from "node:child_process";
 
@@ -370,7 +370,7 @@ const server = createServer((req, res) => {
   const path = url.pathname;
 
   res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
   if (req.method === "OPTIONS") { res.writeHead(204); res.end(); return; }
 
@@ -386,7 +386,7 @@ const server = createServer((req, res) => {
   // Code Review API
   if (path === "/api/code-review/sessions") return json(listCodeReviewSessions());
 
-  if (path.startsWith("/api/code-review/session/")) {
+  if (path.startsWith("/api/code-review/session/") && req.method === "GET") {
     const id = path.split("/")[4];
     const session = getCodeReviewSession(id);
     return session ? json(session) : json({ error: "Not found" }, 404);
@@ -431,6 +431,29 @@ const server = createServer((req, res) => {
       }
     });
     return;
+  }
+
+  if (path.startsWith("/api/code-review/session/") && req.method === "DELETE") {
+    const id = path.split("/")[4];
+    if (!id || !/^\d{8}_\d{6}$/.test(id)) return json({ error: "Invalid session id" }, 400);
+    const dir = join(CR_SESSIONS_DIR, id);
+    if (!existsSync(dir)) return json({ error: "Not found" }, 404);
+    try {
+      // 세션 디렉토리 삭제
+      rmSync(dir, { recursive: true, force: true });
+      // 관련 로그 파일 삭제 (logs/cr-{id}-*.log)
+      const logPrefix = `cr-${id}-`;
+      if (existsSync(LOGS_DIR)) {
+        for (const f of readdirSync(LOGS_DIR)) {
+          if (f.startsWith(logPrefix) && f.endsWith(".log")) {
+            rmSync(join(LOGS_DIR, f), { force: true });
+          }
+        }
+      }
+      return json({ deleted: true, id });
+    } catch (e) {
+      return json({ error: e.message }, 500);
+    }
   }
 
   if (path === "/api/code-review/continue" && req.method === "POST") {
