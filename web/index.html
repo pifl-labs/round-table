@@ -27,13 +27,25 @@
 
   /* Topic row */
   .form-topic { margin-bottom: 16px; }
-  .form-topic input {
+  .form-topic textarea {
     width: 100%; padding: 13px 16px; background: var(--bg);
     border: 1px solid var(--border); border-radius: 10px; color: var(--text);
-    font-size: 15px; transition: border-color 0.15s;
+    font-size: 15px; transition: border-color 0.15s; resize: none; overflow: hidden;
+    min-height: 52px; line-height: 1.5; font-family: inherit;
   }
-  .form-topic input:focus { outline: none; border-color: var(--accent); }
-  .form-topic input::placeholder { color: var(--muted); }
+  .form-topic textarea:focus { outline: none; border-color: var(--accent); }
+  .form-topic textarea::placeholder { color: var(--muted); }
+  .form-context { margin-bottom: 16px; }
+  .form-context label { display: block; font-size: 12px; font-weight: 600; color: var(--muted); letter-spacing: 0.04em; text-transform: uppercase; margin-bottom: 6px; }
+  .form-context .ctx-hint { font-size: 11px; color: var(--muted); margin-left: 8px; font-weight: 400; text-transform: none; letter-spacing: 0; }
+  .form-context textarea {
+    width: 100%; padding: 11px 16px; background: var(--bg);
+    border: 1px solid var(--border); border-radius: 10px; color: var(--text);
+    font-size: 13px; transition: border-color 0.15s; resize: vertical;
+    min-height: 90px; max-height: 320px; line-height: 1.6; font-family: inherit;
+  }
+  .form-context textarea:focus { outline: none; border-color: var(--purple); }
+  .form-context textarea::placeholder { color: var(--muted); }
 
   /* Row: rounds + project */
   .form-row2 { display: grid; grid-template-columns: 160px 1fr; gap: 12px; margin-bottom: 16px; align-items: center; }
@@ -203,7 +215,12 @@
     <h2>새 토론 시작</h2>
 
     <div class="form-topic">
-      <input type="text" id="topic" placeholder="토픽 입력 (예: PiPi Focus에 소셜 기능을 추가해야 하는가?)">
+      <textarea id="topic" rows="1" placeholder="토픽 입력 (예: PiPi Words 출시 전 최종 검토: 지금 당장 출시해야 하는가?)"></textarea>
+    </div>
+
+    <div class="form-context">
+      <label>배경 컨텍스트 <span class="ctx-hint">선택 사항 · 이전 토론 결과, 앱 현황, 요청사항 등</span></label>
+      <textarea id="context" placeholder="에이전트에게 제공할 배경 정보를 자유롭게 입력하세요.&#10;&#10;예시:&#10;- 이전 5라운드 토론 요약&#10;- 현재 앱 개발 진척도&#10;- 중점적으로 검토해달라는 항목"></textarea>
     </div>
 
     <div class="form-row2">
@@ -625,8 +642,12 @@ document.querySelectorAll('.tabs .tab').forEach(t => {
 // Start Debate
 // ============================================================
 async function startDebate() {
-  const topic = document.getElementById('topic').value.trim();
-  if (!topic) return alert('토픽을 입력하세요');
+  const topicRaw = document.getElementById('topic').value.trim();
+  if (!topicRaw) return alert('토픽을 입력하세요');
+  const contextRaw = document.getElementById('context').value.trim();
+  const topic = contextRaw
+    ? `${topicRaw}\n\n=== 배경 컨텍스트 ===\n${contextRaw}`
+    : topicRaw;
 
   const selectedAgents = getSelectedAgents();
   if (selectedAgents.length < 2) return alert('에이전트를 최소 2개 선택하세요');
@@ -650,6 +671,8 @@ async function startDebate() {
       }),
     });
     document.getElementById('topic').value = '';
+    document.getElementById('context').value = '';
+    document.getElementById('topic').style.height = '';
     setTimeout(() => {
       loadSessions();
       btn.disabled = false;
@@ -721,9 +744,18 @@ async function continueDebate() {
   }
 }
 
-// Enter key on topic input
+// Cmd/Ctrl+Enter로 토론 시작 (textarea에서 Enter는 줄바꿈)
 document.getElementById('topic').addEventListener('keydown', e => {
-  if (e.key === 'Enter') startDebate();
+  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) startDebate();
+});
+document.getElementById('context').addEventListener('keydown', e => {
+  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) startDebate();
+});
+
+// topic textarea 자동 높이 조절
+document.getElementById('topic').addEventListener('input', function() {
+  this.style.height = 'auto';
+  this.style.height = Math.min(this.scrollHeight, 200) + 'px';
 });
 
 // ============================================================

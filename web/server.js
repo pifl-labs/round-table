@@ -71,27 +71,44 @@ function listAgents() {
 function listProjects() {
   const wsName = WORKSPACE_DIR.split("/").pop() || "workspace";
   const projects = [{ id: "root", name: `${wsName} (전체)`, path: WORKSPACE_DIR }];
-
   if (!existsSync(WORKSPACE_DIR)) return projects;
 
-  // 직접 하위 디렉토리를 프로젝트로 인식 (숨김폴더, node_modules 제외)
-  const SKIP = new Set(["node_modules", ".git", "packages", "logs", "sessions"]);
+  const SKIP = new Set(["node_modules", ".git", "packages", "logs", "sessions",
+    "build", ".dart_tool", ".gradle", ".idea", "android", "ios", "web", ".fvm"]);
+
+  const getLabel = (dir, name) => {
+    if (existsSync(join(dir, "pubspec.yaml"))) return `${name} (Flutter)`;
+    if (existsSync(join(dir, "package.json"))) return `${name} (Node)`;
+    if (existsSync(join(dir, "pyproject.toml")) || existsSync(join(dir, "setup.py"))) return `${name} (Python)`;
+    if (existsSync(join(dir, "go.mod"))) return `${name} (Go)`;
+    return null;
+  };
+
   for (const d of readdirSync(WORKSPACE_DIR).sort()) {
     if (d.startsWith(".") || SKIP.has(d)) continue;
     const full = join(WORKSPACE_DIR, d);
-    try {
-      if (!statSync(full).isDirectory()) continue;
-    } catch { continue; }
-    const hasPubspec = existsSync(join(full, "pubspec.yaml"));
-    const hasPackage = existsSync(join(full, "package.json"));
-    const hasPyproject = existsSync(join(full, "pyproject.toml")) || existsSync(join(full, "setup.py"));
-    const hasGo = existsSync(join(full, "go.mod"));
-    const label = hasPubspec ? `${d} (Flutter)`
-      : hasPackage ? `${d} (Node)`
-      : hasPyproject ? `${d} (Python)`
-      : hasGo ? `${d} (Go)`
-      : d;
-    projects.push({ id: d, name: label, path: full });
+    try { if (!statSync(full).isDirectory()) continue; } catch { continue; }
+
+    const label = getLabel(full, d);
+    if (label) {
+      projects.push({ id: d, name: label, path: full });
+    } else {
+      // 프로젝트 마커 없음 → 한 단계 더 탐색 (예: code/ 컨테이너)
+      const children = [];
+      try {
+        for (const sub of readdirSync(full).sort()) {
+          if (sub.startsWith(".") || SKIP.has(sub)) continue;
+          const subFull = join(full, sub);
+          try { if (!statSync(subFull).isDirectory()) continue; } catch { continue; }
+          const subLabel = getLabel(subFull, sub);
+          if (subLabel) children.push({ id: `${d}/${sub}`, name: subLabel, path: subFull });
+        }
+      } catch {}
+      if (children.length) {
+        projects.push({ id: d, name: `${d} (전체)`, path: full });
+        projects.push(...children);
+      }
+    }
   }
   return projects;
 }
