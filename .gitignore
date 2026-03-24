@@ -1,0 +1,14 @@
+# 토론 기록 (로컬 전용)
+sessions/
+logs/
+*.log
+
+# 환경변수 (시크릿 포함)
+.env
+
+# Playwright
+.playwright-mcp/
+
+# Node
+node_modules/
+web/node_modules/

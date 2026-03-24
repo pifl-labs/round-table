@@ -1,0 +1,605 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Round Table — Claude Multi-Agent Debate</title>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<style>
+  :root {
+    --bg: #0f172a; --card: #1e293b; --border: #334155;
+    --text: #e2e8f0; --muted: #94a3b8; --accent: #06b6d4;
+    --purple: #8b5cf6; --green: #22c55e; --red: #ef4444; --yellow: #fbbf24;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Inter', -apple-system, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+
+  .header { padding: 20px 24px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 12px; }
+  .header h1 { font-size: 20px; }
+  .header .flag { font-size: 28px; }
+  .header .sub { color: var(--muted); font-size: 13px; }
+
+  .container { max-width: 1200px; margin: 0 auto; padding: 24px; }
+
+  /* New Debate Form */
+  .new-debate { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 24px; margin-bottom: 28px; }
+  .new-debate h2 { font-size: 14px; margin-bottom: 18px; color: var(--accent); font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
+
+  /* Topic row */
+  .form-topic { margin-bottom: 16px; }
+  .form-topic input {
+    width: 100%; padding: 13px 16px; background: var(--bg);
+    border: 1px solid var(--border); border-radius: 10px; color: var(--text);
+    font-size: 15px; transition: border-color 0.15s;
+  }
+  .form-topic input:focus { outline: none; border-color: var(--accent); }
+  .form-topic input::placeholder { color: var(--muted); }
+
+  /* Row: rounds + project */
+  .form-row2 { display: grid; grid-template-columns: 160px 1fr; gap: 12px; margin-bottom: 16px; align-items: center; }
+
+  .field-group { display: flex; flex-direction: column; gap: 6px; }
+  .field-group label { font-size: 12px; font-weight: 600; color: var(--muted); letter-spacing: 0.04em; text-transform: uppercase; }
+  .field-group input[type=number] {
+    padding: 10px 14px; background: var(--bg);
+    border: 1px solid var(--border); border-radius: 8px; color: var(--text);
+    font-size: 15px; text-align: center; width: 100%;
+  }
+  .field-group input[type=number]:focus { outline: none; border-color: var(--accent); }
+  .field-group select {
+    padding: 10px 40px 10px 14px; background: var(--bg);
+    border: 1px solid var(--border); border-radius: 8px; color: var(--text);
+    font-size: 14px; width: 100%; cursor: pointer;
+    appearance: none; -webkit-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='7' viewBox='0 0 12 7'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%2394a3b8' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 14px center;
+  }
+  .field-group select:focus { outline: none; border-color: var(--accent); }
+
+  /* Agents section */
+  .agents-section { margin-bottom: 20px; }
+  .agents-section > label { display: block; font-size: 12px; font-weight: 600; color: var(--muted); letter-spacing: 0.04em; text-transform: uppercase; margin-bottom: 10px; }
+  .agent-checks { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .agent-check {
+    display: flex; align-items: center; gap: 10px; padding: 10px 14px;
+    background: var(--bg); border: 1px solid var(--border); border-radius: 10px;
+    cursor: pointer; transition: border-color 0.15s, background 0.15s; user-select: none;
+  }
+  .agent-check:hover { border-color: var(--accent); background: rgba(6,182,212,0.06); }
+  .agent-check.selected { border-color: var(--accent); background: rgba(6,182,212,0.12); }
+  .agent-check .agent-icon { font-size: 20px; line-height: 1; flex-shrink: 0; }
+  .agent-check .agent-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+  .agent-check .agent-label { font-size: 13px; font-weight: 600; line-height: 1.2; }
+  .agent-check .agent-desc { font-size: 11px; color: var(--muted); line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .agent-check .check-mark { margin-left: auto; font-size: 14px; flex-shrink: 0; opacity: 0; transition: opacity 0.15s; }
+  .agent-check.selected .check-mark { opacity: 1; color: var(--accent); }
+
+  /* Start button row */
+  .form-actions { display: flex; justify-content: flex-end; }
+  .btn {
+    padding: 12px 28px; background: var(--accent); color: #000;
+    border: none; border-radius: 10px; cursor: pointer;
+    font-weight: 700; font-size: 15px; white-space: nowrap;
+    transition: opacity 0.15s;
+  }
+  .btn:hover { opacity: 0.88; }
+  .btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+  /* Sessions List */
+  .section-title { font-size: 12px; font-weight: 700; color: var(--muted); letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 14px; }
+  .sessions { display: grid; gap: 10px; margin-bottom: 24px; }
+  .session-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px; cursor: pointer; transition: border-color 0.15s, background 0.15s; }
+  .session-card:hover { border-color: var(--accent); background: rgba(30,41,59,0.8); }
+  .session-card .topic { font-weight: 600; margin-bottom: 8px; font-size: 15px; line-height: 1.4; }
+  .session-card .meta { font-size: 12px; color: var(--muted); display: flex; gap: 14px; flex-wrap: wrap; align-items: center; }
+
+  .status { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 600; }
+  .status .dot { width: 7px; height: 7px; border-radius: 50%; }
+  .status.running .dot { background: var(--yellow); animation: pulse 1.5s infinite; }
+  .status.completed .dot { background: var(--green); }
+  .status.error .dot { background: var(--red); }
+  .status.pending .dot { background: var(--muted); }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+  .agent-badges { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+  .agent-badge { font-size: 11px; padding: 3px 8px; border-radius: 6px; background: var(--bg); border: 1px solid var(--border); }
+  .agent-badge.running { border-color: var(--yellow); color: var(--yellow); }
+  .agent-badge.done { border-color: var(--green); color: var(--green); }
+  .agent-badge.error { border-color: var(--red); color: var(--red); }
+
+  /* Detail View */
+  .detail { display: none; }
+  .detail.active { display: block; }
+  .back-btn { background: none; border: 1px solid var(--border); color: var(--muted); padding: 6px 14px; border-radius: 6px; cursor: pointer; margin-bottom: 16px; font-size: 13px; }
+  .back-btn:hover { color: var(--text); border-color: var(--accent); }
+  .detail-header { margin-bottom: 14px; }
+  .detail-header h2 { font-size: 18px; margin-bottom: 6px; }
+  .detail-meta { font-size: 12px; color: var(--muted); display: flex; gap: 14px; }
+
+  /* Round Progress */
+  .round-progress { display: flex; gap: 6px; margin: 14px 0; flex-wrap: wrap; align-items: center; }
+  .round-badge { font-size: 12px; padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border); color: var(--muted); }
+  .round-badge.done { border-color: var(--green); color: var(--green); }
+  .round-badge.running { border-color: var(--yellow); color: var(--yellow); animation: pulse 1.5s infinite; }
+  .round-badge.synthesis { border-color: var(--purple); color: var(--purple); }
+  .round-badge.synthesis.done { border-color: var(--accent); color: var(--accent); }
+  .round-arrow { color: var(--muted); font-size: 12px; }
+
+  /* Tabs */
+  .tabs { display: flex; border-bottom: 1px solid var(--border); margin-bottom: 16px; }
+  .tab { padding: 10px 18px; cursor: pointer; font-size: 14px; color: var(--muted); border-bottom: 2px solid transparent; }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+  /* Content */
+  .content-panel { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 20px; overflow: auto; }
+  .md-content { font-size: 14px; line-height: 1.8; }
+  .md-content h1 { font-size: 22px; color: var(--accent); margin: 24px 0 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+  .md-content h2 { font-size: 18px; color: var(--accent); margin: 20px 0 10px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+  .md-content h3 { font-size: 16px; color: var(--purple); margin: 16px 0 8px; }
+  .md-content p { margin: 8px 0; }
+  .md-content ul, .md-content ol { margin: 8px 0; padding-left: 24px; }
+  .md-content li { margin: 4px 0; }
+  .md-content code { background: var(--bg); padding: 2px 6px; border-radius: 4px; font-size: 13px; font-family: 'SF Mono', monospace; }
+  .md-content pre { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 16px; overflow-x: auto; margin: 12px 0; }
+  .md-content pre code { background: none; padding: 0; }
+  .md-content blockquote { border-left: 3px solid var(--accent); padding-left: 16px; margin: 12px 0; color: var(--muted); }
+  .md-content table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 13px; }
+  .md-content th { background: var(--bg); padding: 10px 12px; text-align: left; border: 1px solid var(--border); color: var(--accent); font-weight: 600; }
+  .md-content td { padding: 8px 12px; border: 1px solid var(--border); }
+  .md-content tr:hover td { background: rgba(6, 182, 212, 0.04); }
+  .md-content strong { color: var(--yellow); }
+  .md-content a { color: var(--accent); text-decoration: none; }
+  .md-content a:hover { text-decoration: underline; }
+  .md-content hr { border: none; border-top: 1px solid var(--border); margin: 20px 0; }
+
+  /* Log Viewer */
+  .log-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 14px; }
+  .log-panel { background: #000; border: 1px solid var(--border); border-radius: 8px; max-height: 380px; overflow: auto; }
+  .log-panel .log-header { padding: 7px 12px; border-bottom: 1px solid var(--border); font-size: 12px; font-weight: 700; color: var(--accent); position: sticky; top: 0; background: #080808; }
+  .log-panel pre { padding: 12px; font-size: 12px; line-height: 1.5; color: #7adb7a; white-space: pre-wrap; word-break: break-all; }
+
+  /* File viewer */
+  .file-viewer { display: grid; grid-template-columns: 220px 1fr; gap: 14px; }
+  .file-tree { list-style: none; }
+  .file-tree li { padding: 6px 10px; cursor: pointer; font-size: 12px; border-radius: 6px; color: var(--muted); }
+  .file-tree li:hover { background: var(--bg); color: var(--text); }
+  .file-tree li.active { background: rgba(6,182,212,0.15); color: var(--accent); }
+  .file-tree .round-group { padding: 8px 10px 4px; font-size: 11px; font-weight: 700; color: var(--purple); text-transform: uppercase; letter-spacing: 0.05em; cursor: default; }
+  .file-tree .round-group:hover { background: none; color: var(--purple); }
+
+  /* Round view */
+  .rounds-view { display: grid; gap: 16px; }
+  .round-section h3 { font-size: 13px; font-weight: 700; color: var(--purple); margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.05em; }
+  .agent-outputs { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 12px; }
+  .agent-output-card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+  .agent-output-card .card-header { padding: 10px 14px; border-bottom: 1px solid var(--border); font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+  .agent-output-card .card-body { padding: 14px; max-height: 400px; overflow-y: auto; }
+  .empty-msg { color: var(--muted); font-size: 13px; text-align: center; padding: 40px; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <span class="flag">🏴‍☠️</span>
+  <h1>Round Table</h1>
+  <span class="sub">Claude Multi-Agent Debate System</span>
+</div>
+
+<div class="container">
+  <!-- New Debate -->
+  <div class="new-debate">
+    <h2>새 토론 시작</h2>
+
+    <div class="form-topic">
+      <input type="text" id="topic" placeholder="토픽 입력 (예: PiPi Focus에 소셜 기능을 추가해야 하는가?)">
+    </div>
+
+    <div class="form-row2">
+      <div class="field-group">
+        <label>토론 라운드</label>
+        <input type="number" id="rounds" value="2" min="1" max="9">
+      </div>
+      <div class="field-group">
+        <label>프로젝트</label>
+        <select id="project"></select>
+      </div>
+    </div>
+
+    <div class="agents-section">
+      <label>참여 에이전트 (최소 2개)</label>
+      <div class="agent-checks" id="agent-checks"></div>
+    </div>
+
+    <div class="form-actions">
+      <button class="btn" id="start-btn" onclick="startDebate()">토론 시작</button>
+    </div>
+  </div>
+
+  <!-- Sessions List -->
+  <div id="list-view">
+    <div class="section-title">토론 기록</div>
+    <div id="sessions" class="sessions"></div>
+  </div>
+
+  <!-- Detail View -->
+  <div id="detail-view" class="detail">
+    <button class="back-btn" onclick="showList()">← 목록으로</button>
+
+    <div class="detail-header">
+      <h2 id="detail-topic"></h2>
+      <div class="detail-meta">
+        <span id="detail-rounds"></span>
+        <span id="detail-project"></span>
+        <span id="detail-time"></span>
+      </div>
+    </div>
+
+    <div class="round-progress" id="round-progress"></div>
+    <div class="agent-badges" id="detail-agents"></div>
+
+    <div class="tabs" style="margin-top: 16px;">
+      <div class="tab active" data-tab="logs">실시간 로그</div>
+      <div class="tab" data-tab="rounds">라운드별 결과</div>
+      <div class="tab" data-tab="files">파일 탐색기</div>
+      <div class="tab" data-tab="conclusion">최종 결론</div>
+    </div>
+
+    <div id="tab-logs">
+      <div id="log-grid" class="log-grid"></div>
+    </div>
+    <div id="tab-rounds" style="display:none">
+      <div id="rounds-view" class="rounds-view"></div>
+    </div>
+    <div id="tab-files" style="display:none">
+      <div id="file-viewer" class="file-viewer">
+        <ul id="file-tree" class="file-tree"></ul>
+        <div id="file-content" class="content-panel md-content">파일을 선택하세요</div>
+      </div>
+    </div>
+    <div id="tab-conclusion" style="display:none">
+      <div id="conclusion-content" class="content-panel md-content">아직 결론이 없습니다.</div>
+    </div>
+  </div>
+</div>
+
+<script>
+const AGENT_ICONS = {
+  analyst: '📊', developer: '💻', critic: '🔥',
+  designer: '🎨', financial: '💰', strategist: '♟️',
+};
+
+let currentSession = null;
+let currentSessionData = null;
+let eventSource = null;
+let availableAgents = [];
+
+// Markdown renderer
+function renderMd(text) {
+  if (typeof marked !== 'undefined' && marked.parse) return marked.parse(text || '');
+  return '<pre>' + escapeHtml(text || '') + '</pre>';
+}
+
+function escapeHtml(text) {
+  const d = document.createElement('div');
+  d.textContent = text;
+  return d.innerHTML;
+}
+
+// ============================================================
+// Agent Checkboxes
+// ============================================================
+async function loadAgents() {
+  const res = await fetch('/api/agents');
+  availableAgents = await res.json();
+  const container = document.getElementById('agent-checks');
+  const defaults = ['analyst', 'developer', 'critic'];
+  container.innerHTML = availableAgents.map(a => `
+    <div class="agent-check ${defaults.includes(a.id) ? 'selected' : ''}" data-id="${a.id}">
+      <span class="agent-icon">${AGENT_ICONS[a.id] || '🤖'}</span>
+      <div class="agent-text">
+        <span class="agent-label">${a.name}</span>
+        <span class="agent-desc">${a.description}</span>
+      </div>
+      <span class="check-mark">✓</span>
+    </div>
+  `).join('');
+
+  // 클릭 핸들러 — label+input double-fire 방지를 위해 div + addEventListener 사용
+  container.querySelectorAll('.agent-check').forEach(el => {
+    el.addEventListener('click', () => {
+      el.classList.toggle('selected');
+    });
+  });
+}
+
+function getSelectedAgents() {
+  return [...document.querySelectorAll('.agent-check.selected')]
+    .map(el => el.dataset.id);
+}
+
+// ============================================================
+// Sessions
+// ============================================================
+async function loadSessions() {
+  const res = await fetch('/api/sessions');
+  const sessions = await res.json();
+  const el = document.getElementById('sessions');
+  if (!sessions.length) {
+    el.innerHTML = '<div class="empty-msg">아직 토론이 없습니다. 새 토론을 시작해보세요.</div>';
+    return;
+  }
+  el.innerHTML = sessions.map(s => `
+    <div class="session-card" onclick="showDetail('${s.id}')">
+      <div class="topic">${escapeHtml(s.topic || 'Unknown')}</div>
+      <div class="meta">
+        <span class="status ${s.status}"><span class="dot"></span>${s.status}</span>
+        <span>${s.rounds || '?'}라운드 토론</span>
+        <span>${(s.project_dir || '').split('/').pop() || 'root'}</span>
+        <span>${s.id}</span>
+      </div>
+      <div class="agent-badges">
+        ${(s.agents || []).map(a =>
+          `<span class="agent-badge ${a.status}">${AGENT_ICONS[a.id] || '🤖'} ${a.name}</span>`
+        ).join('')}
+      </div>
+    </div>
+  `).join('');
+}
+
+// ============================================================
+// Detail View
+// ============================================================
+async function showDetail(id) {
+  currentSession = id;
+  document.getElementById('list-view').style.display = 'none';
+  document.getElementById('detail-view').classList.add('active');
+
+  const res = await fetch(`/api/session/${id}`);
+  currentSessionData = await res.json();
+  renderDetail(currentSessionData);
+  startLogStream();
+  showTab('logs');
+}
+
+function renderDetail(data) {
+  document.getElementById('detail-topic').textContent = data.topic || 'Unknown';
+  document.getElementById('detail-rounds').textContent = `${data.rounds || '?'}라운드 토론`;
+  document.getElementById('detail-project').textContent = (data.project_dir || '').split('/').pop();
+  document.getElementById('detail-time').textContent = data.started_at
+    ? new Date(data.started_at).toLocaleString('ko-KR') : '';
+
+  // Agent badges
+  document.getElementById('detail-agents').innerHTML =
+    (data.agents || []).map(a =>
+      `<span class="agent-badge ${a.status}">${AGENT_ICONS[a.id] || '🤖'} ${a.name} (${a.status})</span>`
+    ).join('');
+
+  // Round progress
+  const rounds = parseInt(data.rounds) || 2;
+  const files = data.files || {};
+  const progressEl = document.getElementById('round-progress');
+  let html = '';
+  for (let r = 1; r <= rounds; r++) {
+    const hasAny = Object.keys(files).some(f => f.startsWith(`round-${r}/`));
+    html += `<span class="round-badge ${hasAny ? 'done' : ''}">Round ${r}</span>`;
+    if (r < rounds) html += '<span class="round-arrow">→</span>';
+  }
+  html += '<span class="round-arrow">→</span>';
+  const hasSynthesis = files['conclusion.md'] || files['final/synthesis.md'];
+  html += `<span class="round-badge synthesis ${hasSynthesis ? 'done' : ''}">최종 종합</span>`;
+  progressEl.innerHTML = html;
+
+  // File tree
+  const fileKeys = Object.keys(files).filter(f => f !== 'meta.json').sort();
+  const tree = document.getElementById('file-tree');
+
+  // Group by round
+  const groups = {};
+  for (const f of fileKeys) {
+    const parts = f.split('/');
+    const group = parts.length > 1 ? parts[0] : 'root';
+    if (!groups[group]) groups[group] = [];
+    groups[group].push(f);
+  }
+
+  tree.innerHTML = Object.entries(groups).map(([group, files]) => `
+    <li class="round-group">${group}</li>
+    ${files.map(f => `<li onclick="showFile(this, '${currentSession}', '${f}')">${f.split('/').pop()}</li>`).join('')}
+  `).join('');
+
+  // Rounds view
+  renderRoundsView(data);
+
+  // Conclusion
+  const conclusion = files['conclusion.md'] || files['final/synthesis.md'] || '';
+  document.getElementById('conclusion-content').innerHTML =
+    conclusion ? renderMd(conclusion) : '<div class="empty-msg">아직 결론이 없습니다.</div>';
+}
+
+function renderRoundsView(data) {
+  const files = data.files || {};
+  const rounds = parseInt(data.rounds) || 2;
+  const agents = data.agents || [];
+  const container = document.getElementById('rounds-view');
+
+  let html = '';
+  for (let r = 1; r <= rounds; r++) {
+    const roundFiles = Object.entries(files).filter(([k]) => k.startsWith(`round-${r}/`));
+    if (!roundFiles.length) continue;
+
+    html += `<div class="round-section">
+      <h3>Round ${r} ${r === 1 ? '— 초기 입장' : '— 토론'}</h3>
+      <div class="agent-outputs">`;
+
+    for (const [path, content] of roundFiles) {
+      const agentId = path.split('/').pop().replace('.md', '');
+      const agent = agents.find(a => a.id === agentId) || { name: agentId };
+      html += `<div class="agent-output-card">
+        <div class="card-header">
+          ${AGENT_ICONS[agentId] || '🤖'} ${agent.name}
+        </div>
+        <div class="card-body md-content">${renderMd(content)}</div>
+      </div>`;
+    }
+
+    html += '</div></div>';
+  }
+
+  // Final synthesis
+  const synth = files['conclusion.md'] || files['final/synthesis.md'];
+  if (synth) {
+    html += `<div class="round-section">
+      <h3>최종 종합 — CEO 결정</h3>
+      <div class="content-panel md-content">${renderMd(synth)}</div>
+    </div>`;
+  }
+
+  container.innerHTML = html || '<div class="empty-msg">아직 결과가 없습니다.</div>';
+}
+
+function showFile(el, id, filename) {
+  document.querySelectorAll('.file-tree li:not(.round-group)').forEach(l => l.classList.remove('active'));
+  el.classList.add('active');
+  fetch(`/api/session/${id}`).then(r => r.json()).then(data => {
+    document.getElementById('file-content').innerHTML =
+      `<div class="md-content">${renderMd(data.files?.[filename] || 'Empty')}</div>`;
+  });
+}
+
+// ============================================================
+// Log Streaming
+// ============================================================
+function startLogStream() {
+  if (eventSource) eventSource.close();
+  eventSource = new EventSource('/api/logs/stream');
+
+  eventSource.onmessage = (e) => {
+    const logs = JSON.parse(e.data);
+    const grid = document.getElementById('log-grid');
+    if (!Object.keys(logs).length) {
+      grid.innerHTML = '<div class="empty-msg">아직 로그가 없습니다.</div>';
+      return;
+    }
+    grid.innerHTML = Object.entries(logs).map(([name, content]) => `
+      <div class="log-panel">
+        <div class="log-header">${AGENT_ICONS[name] || '📋'} ${name}</div>
+        <pre>${escapeHtml(content.slice(-4000))}</pre>
+      </div>
+    `).join('');
+    grid.querySelectorAll('.log-panel').forEach(p => { p.scrollTop = p.scrollHeight; });
+  };
+
+  eventSource.addEventListener('sessions', (e) => {
+    const sessions = JSON.parse(e.data);
+    const current = sessions.find(s => s.id === currentSession);
+    if (current) {
+      document.getElementById('detail-agents').innerHTML =
+        (current.agents || []).map(a =>
+          `<span class="agent-badge ${a.status}">${AGENT_ICONS[a.id] || '🤖'} ${a.name} (${a.status})</span>`
+        ).join('');
+      // Refresh detail if completed
+      if (current.status === 'completed' && currentSessionData?.status !== 'completed') {
+        showDetail(currentSession);
+      }
+    }
+  });
+}
+
+// ============================================================
+// Navigation
+// ============================================================
+function showList() {
+  if (eventSource) eventSource.close();
+  document.getElementById('list-view').style.display = 'block';
+  document.getElementById('detail-view').classList.remove('active');
+  currentSession = null;
+  currentSessionData = null;
+  loadSessions();
+}
+
+function showTab(name) {
+  document.querySelectorAll('.tabs .tab').forEach(t => {
+    const isActive = t.dataset.tab === name;
+    t.classList.toggle('active', isActive);
+  });
+  ['logs', 'rounds', 'files', 'conclusion'].forEach(t => {
+    const el = document.getElementById(`tab-${t}`);
+    if (el) el.style.display = t === name ? 'block' : 'none';
+  });
+  // Refresh rounds view on tab switch
+  if (name === 'rounds' && currentSessionData) renderRoundsView(currentSessionData);
+}
+
+document.querySelectorAll('.tabs .tab').forEach(t => {
+  t.addEventListener('click', () => showTab(t.dataset.tab));
+});
+
+// ============================================================
+// Start Debate
+// ============================================================
+async function startDebate() {
+  const topic = document.getElementById('topic').value.trim();
+  if (!topic) return alert('토픽을 입력하세요');
+
+  const selectedAgents = getSelectedAgents();
+  if (selectedAgents.length < 2) return alert('에이전트를 최소 2개 선택하세요');
+
+  const rounds = parseInt(document.getElementById('rounds').value) || 2;
+  const projectDir = document.getElementById('project').value;
+
+  const btn = document.getElementById('start-btn');
+  btn.disabled = true;
+  btn.textContent = '시작 중...';
+
+  try {
+    await fetch('/api/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        topic,
+        rounds,
+        agents: selectedAgents.join(','),
+        projectDir,
+      }),
+    });
+    document.getElementById('topic').value = '';
+    setTimeout(() => {
+      loadSessions();
+      btn.disabled = false;
+      btn.textContent = '토론 시작';
+    }, 1500);
+  } catch(e) {
+    alert('Error: ' + e.message);
+    btn.disabled = false;
+    btn.textContent = '토론 시작';
+  }
+}
+
+// Enter key on topic input
+document.getElementById('topic').addEventListener('keydown', e => {
+  if (e.key === 'Enter') startDebate();
+});
+
+// ============================================================
+// Projects
+// ============================================================
+async function loadProjects() {
+  const res = await fetch('/api/projects');
+  const projects = await res.json();
+  const sel = document.getElementById('project');
+  sel.innerHTML = projects.map(p =>
+    `<option value="${p.path}">${p.name}</option>`
+  ).join('');
+}
+
+// ============================================================
+// Init
+// ============================================================
+loadAgents();
+loadProjects();
+loadSessions();
+setInterval(() => { if (!currentSession) loadSessions(); }, 5000);
+</script>
+</body>
+</html>
