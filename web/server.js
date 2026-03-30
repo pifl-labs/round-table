@@ -263,7 +263,14 @@ function getCodeReviewSession(id) {
     }
   };
   collectMd(dir);
-  return { ...meta, agents_detail: agents, files };
+  // agents.json의 provider를 meta.agents에 머지
+  const detailMap = {};
+  for (const a of (agents.agents || [])) detailMap[a.id] = a;
+  const mergedAgents = (meta.agents || []).map(a => ({
+    ...a,
+    provider: detailMap[a.id]?.provider || a.provider || '',
+  }));
+  return { ...meta, agents: mergedAgents, agents_detail: agents, files };
 }
 
 function getCodeReviewLogs(sessionId) {
@@ -1176,6 +1183,32 @@ const server = createServer((req, res) => {
       } catch (e) {
         return json({ error: e.message }, 400);
       }
+    });
+    return;
+  }
+
+  // 에이전트별 AI provider 저장
+  if (path.match(/^\/api\/code-review\/session\/[^/]+\/agent-providers$/) && req.method === "POST") {
+    const id = path.split("/")[4];
+    const dir = join(CR_SESSIONS_DIR, id);
+    if (!existsSync(dir)) return json({ error: "Not found" }, 404);
+    let body = "";
+    req.on("data", c => body += c);
+    req.on("end", () => {
+      try {
+        const { agents } = JSON.parse(body); // [{ id, provider }]
+        if (!Array.isArray(agents)) return json({ error: "agents array required" }, 400);
+        const agentsFile = join(dir, "agents.json");
+        const agentsData = existsSync(agentsFile) ? JSON.parse(readFileSync(agentsFile, "utf-8")) : { agents: [] };
+        const validProviders = new Set(["claude", "gemini-cli", "codex-cli"]);
+        for (const { id: agentId, provider } of agents) {
+          if (!validProviders.has(provider)) continue;
+          const agent = agentsData.agents?.find(a => a.id === agentId);
+          if (agent) agent.provider = provider;
+        }
+        writeFileSync(agentsFile, JSON.stringify(agentsData, null, 2));
+        return json({ saved: true });
+      } catch (e) { return json({ error: e.message }, 400); }
     });
     return;
   }

@@ -154,8 +154,21 @@
   .log-box-header { padding: 8px 12px; border-bottom: 1px solid var(--border); font-size: 11px; font-weight: 600; color: var(--muted); letter-spacing: 0.04em; text-transform: uppercase; }
   .log-box-body { padding: 10px 12px; font-family: 'SF Mono', 'Fira Code', monospace; font-size: 11px; color: var(--muted); white-space: pre-wrap; max-height: 200px; overflow-y: auto; line-height: 1.5; }
 
-  /* Round section */
-  .round-section { margin-bottom: 24px; }
+  /* Round accordion */
+  .round-section { margin-bottom: 8px; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+  .round-acc-header {
+    display: flex; align-items: center; gap: 10px; padding: 12px 16px;
+    cursor: pointer; background: var(--card); user-select: none;
+    transition: background 0.15s;
+  }
+  .round-acc-header:hover { background: rgba(255,255,255,0.04); }
+  .round-acc-toggle { font-size: 11px; color: var(--muted); width: 16px; flex-shrink: 0; transition: transform 0.2s; }
+  .round-section.open .round-acc-toggle { transform: rotate(90deg); }
+  .round-acc-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; flex: 1; }
+  .round-acc-issues { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 500px; }
+  .round-acc-body { display: none; padding: 16px; border-top: 1px solid var(--border); }
+  .round-section.open .round-acc-body { display: block; }
+
   .round-header { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
   .round-number { font-size: 13px; font-weight: 700; color: var(--accent); padding: 4px 10px; background: rgba(6,182,212,0.1); border-radius: 6px; }
   .round-badges { display: flex; gap: 8px; flex-wrap: wrap; }
@@ -306,6 +319,18 @@
     border-radius: 12px; margin-bottom: 16px;
   }
   .agents-ready-banner h3 { font-size: 15px; font-weight: 700; color: var(--accent); margin-bottom: 12px; }
+  .agent-ai-selector { margin-top: 10px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .agent-ai-selector-label { font-size: 10px; color: var(--muted); font-weight: 600; flex-shrink: 0; }
+  .agent-ai-chip {
+    font-size: 11px; padding: 3px 9px; border-radius: 12px; cursor: pointer;
+    border: 1px solid var(--border); background: none; color: var(--muted); transition: all 0.12s;
+  }
+  .agent-ai-chip:hover { color: var(--text); border-color: var(--muted); }
+  .agent-ai-chip.active { font-weight: 700; }
+  .agent-ai-chip[data-p="claude"].active   { color: #60a5fa; border-color: #60a5fa; background: rgba(96,165,250,0.1); }
+  .agent-ai-chip[data-p="gemini-cli"].active { color: #facc15; border-color: #facc15; background: rgba(250,204,21,0.1); }
+  .agent-ai-chip[data-p="codex-cli"].active { color: #fb923c; border-color: #fb923c; background: rgba(251,146,60,0.1); }
+  .agent-ai-rec-hint { font-size: 10px; color: var(--muted); font-style: italic; margin-top: 3px; }
   .agents-ready-ai-section {
     margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border);
   }
@@ -443,36 +468,6 @@
       <div class="field-group">
         <label>프로젝트</label>
         <select id="project"><option value="">로딩 중...</option></select>
-      </div>
-    </div>
-    <!-- AI 구성 선택 -->
-    <div class="ai-profile-section">
-      <label class="ai-profile-label">AI 구성 추천</label>
-      <div class="ai-profile-cards" id="aiProfileCards">
-        <div class="ai-profile-card active" data-profile="claude" onclick="selectAiProfile(this)">
-          <div class="ai-profile-icon">🔵</div>
-          <div class="ai-profile-info">
-            <div class="ai-profile-name">Claude 전용</div>
-            <div class="ai-profile-desc">파일 직접 탐색 · 높은 정확도<br><span class="ai-profile-cost">토큰 소모 많음</span></div>
-          </div>
-        </div>
-        <div class="ai-profile-card" data-profile="gemini-cli" onclick="selectAiProfile(this)">
-          <div class="ai-profile-icon">🟡</div>
-          <div class="ai-profile-info">
-            <div class="ai-profile-name">Gemini CLI <span class="ai-badge-rec">절약</span></div>
-            <div class="ai-profile-desc">Claude(탐색) + Gemini CLI(분석)<br><span class="ai-profile-cost">무료 · Google 계정 로그인만 필요</span></div>
-          </div>
-        </div>
-        <div class="ai-profile-card" data-profile="codex-cli" onclick="selectAiProfile(this)">
-          <div class="ai-profile-icon">🟠</div>
-          <div class="ai-profile-info">
-            <div class="ai-profile-name">Codex CLI <span class="ai-badge-rec">절약</span></div>
-            <div class="ai-profile-desc">Claude(탐색) + Codex CLI(분석)<br><span class="ai-profile-cost">무료 · ChatGPT 계정 로그인만 필요</span></div>
-          </div>
-        </div>
-      </div>
-      <div class="ai-profile-hint" id="aiProfileHint">
-        🔵 <strong>Claude 전용</strong> — 파일을 직접 읽고 탐색. 가장 정확한 분석을 제공합니다.
       </div>
     </div>
     <div class="form-actions">
@@ -655,18 +650,6 @@ function statusBadge(status, converged) {
 // ============================================================
 // Start Review
 // ============================================================
-function selectAiProfile(card) {
-  document.querySelectorAll('.ai-profile-card').forEach(c => c.classList.remove('active'));
-  card.classList.add('active');
-  const profile = card.dataset.profile;
-  const hint = document.getElementById('aiProfileHint');
-  const hints = {
-    'claude': '🔵 <strong>Claude 전용</strong> — 파일을 직접 읽고 탐색. 가장 정확한 분석을 제공합니다.',
-    'gemini-cli': '🟡 <strong>Gemini CLI</strong> — Gemini CLI가 파일을 직접 읽고 분석. 터미널에서 <code>gemini</code> 로그인 후 사용. Claude 토큰 절약.',
-    'codex-cli': '🟠 <strong>Codex CLI</strong> — Codex CLI가 파일을 직접 읽고 분석. 터미널에서 <code>codex</code> 로그인 후 사용. Claude 토큰 절약.',
-  };
-  if (hint) hint.innerHTML = hints[profile] || '';
-}
 
 async function startReview() {
   const topic = document.getElementById('topic').value.trim();
@@ -675,7 +658,7 @@ async function startReview() {
   const rounds = parseInt(document.getElementById('rounds').value) || 2;
   const agentCount = parseInt(document.getElementById('agentCount').value) || 5;
   const projectDir = document.getElementById('project').value;
-  const aiProfile = document.querySelector('.ai-profile-card.active')?.dataset.profile || 'claude';
+  const aiProfile = 'claude'; // 초기 fallback — 에이전트별 AI는 agents-ready 단계에서 선택
 
   const btn = document.getElementById('startBtn');
   btn.disabled = true; btn.textContent = '⟳ 에이전트 생성 중...';
@@ -752,6 +735,13 @@ function renderSessionDetail(session) {
   // Agents panel rendering based on status
   let agentsPanel = document.getElementById('agentsPanel');
 
+  // 렌더 전 칩 선택 상태 저장 (SSE 재렌더 시 복원용)
+  const savedChips = {};
+  agentsPanel.querySelectorAll('.agent-ai-selector[data-agent-id]').forEach(sel => {
+    const active = sel.querySelector('.agent-ai-chip.active');
+    if (active) savedChips[sel.dataset.agentId] = active.dataset.p;
+  });
+
   if (session.status === 'generating-agents') {
     agentsPanel.innerHTML = `<div class="generating-banner">
       <div class="spinner"></div>
@@ -767,10 +757,26 @@ function renderSessionDetail(session) {
   const agentsDetail = (session.agents_detail?.agents || []);
 
   if (session.status === 'agents-ready' && agents.length) {
+    // 이미 렌더된 상태면 칩 선택 보존을 위해 재렌더 스킵
+    if (agentsPanel.querySelector('.agent-ai-selector')) return;
+
     // 에이전트 확인 단계: 페르소나 카드 + 리뷰 시작 버튼
     const personaCards = agents.map(a => {
       const detail = agentsDetail.find(d => d.id === a.id) || {};
       const expertise = Array.isArray(detail.expertise) ? detail.expertise.join(', ') : (detail.expertise || '');
+      // 에이전트별 AI 추천
+      const rec = recommendAgentProvider(a, detail);
+      const recWinner = rec.winner; // 'claude' | 'codex' | 'gemini'
+      const providerKey = AI_SIGNALS[recWinner]?.providerKey || 'claude';
+      const recHint = AI_SIGNALS[recWinner]?.shortReason || '';
+      const chips = [
+        { p: 'claude',     icon: '🔵', label: 'Claude' },
+        { p: 'codex-cli',  icon: '🟠', label: 'Codex' },
+        { p: 'gemini-cli', icon: '🟡', label: 'Gemini' },
+      ].map(c =>
+        `<button class="agent-ai-chip${c.p === providerKey ? ' active' : ''}" data-p="${c.p}"
+           onclick="selectAgentChip(this)">${c.icon} ${c.label}</button>`
+      ).join('');
       return `<div class="agent-persona-card">
         <div class="agent-persona-header">
           <span style="font-size:20px">🤖</span>
@@ -782,38 +788,21 @@ function renderSessionDetail(session) {
         ${expertise ? `<div class="agent-persona-expertise">역량: ${esc(expertise)}</div>` : ''}
         ${detail.focus ? `<div class="agent-persona-expertise">포커스: ${esc(detail.focus)}</div>` : ''}
         ${(a.persona || detail.persona) ? `<div class="agent-persona-text">"${esc(a.persona || detail.persona)}"</div>` : ''}
+        <div class="agent-ai-selector" data-agent-id="${esc(a.id)}">
+          <span class="agent-ai-selector-label">AI</span>
+          ${chips}
+        </div>
+        ${recHint ? `<div class="agent-ai-rec-hint">✨ ${esc(recHint)} 키워드 감지 → ${AI_SIGNALS[recWinner]?.label} 추천</div>` : ''}
       </div>`;
     }).join('');
-
-    const currentProfile = session.ai_profile || 'claude';
-    const profileMeta = {
-      'claude':     { icon: '🔵', label: 'Claude 전용',  desc: '파일 직접 탐색 · 높은 정확도', cost: '토큰 소모 많음' },
-      'gemini-cli': { icon: '🟡', label: 'Gemini CLI',   desc: 'Claude(탐색) + Gemini CLI(분석)', cost: '무료 · Google 계정' },
-      'codex-cli':  { icon: '🟠', label: 'Codex CLI',    desc: 'Claude(탐색) + Codex CLI(분석)', cost: '무료 · ChatGPT 계정' },
-    };
-    const profileCards = Object.entries(profileMeta).map(([id, p]) =>
-      `<div class="ai-profile-card${id === currentProfile ? ' active' : ''}" data-profile="${id}"
-           onclick="selectReadyProfile(this)" style="min-width:140px;flex:1">
-        <div class="ai-profile-icon">${p.icon}</div>
-        <div class="ai-profile-info">
-          <div class="ai-profile-name">${p.label}</div>
-          <div class="ai-profile-desc">${p.desc}<br><span class="ai-profile-cost">${p.cost}</span></div>
-        </div>
-      </div>`
-    ).join('');
 
     agentsPanel.innerHTML = `<div class="agents-ready-banner">
       <h3>👥 에이전트 생성 완료 — 리뷰 팀을 확인하세요</h3>
       <div style="font-size:13px;color:var(--muted);margin-bottom:16px">
         프로젝트 분석 결과 <strong>${agents.length}명</strong>의 전문가가 구성되었습니다.
-        각 에이전트의 역할과 페르소나를 확인한 후 리뷰를 시작하세요.
+        각 에이전트의 AI를 확인하고 필요 시 변경한 후 리뷰를 시작하세요.
       </div>
       ${personaCards}
-      <div class="agents-ready-ai-section">
-        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted);margin-bottom:10px">에이전트 실행 AI</div>
-        <div class="ai-profile-cards" id="readyAiProfileCards">${profileCards}</div>
-        ${renderAiRecommendBox(recommendAiProfile(session))}
-      </div>
       <div style="margin-top:16px;display:flex;align-items:center;gap:12px">
         <button class="btn" onclick="confirmAndRunReview('${session.id || currentSessionId}')">
           ▶ 이 팀으로 리뷰 시작
@@ -824,21 +813,49 @@ function renderSessionDetail(session) {
     return;
   }
 
-  // running / completed 상태: 에이전트 상태 도트 표시
+  // running / completed 상태: 에이전트 상태 도트 + AI 칩 표시
   if (agents.length) {
-    agentsPanel.innerHTML = `<h3>참여 에이전트 (${agents.length}명)</h3>
-      <div class="agents-grid">${agents.map(a => {
-        const detail = agentsDetail.find(d => d.id === a.id) || {};
-        const dotClass = `dot-${a.status || 'pending'}`;
-        const expertise = Array.isArray(detail.expertise) ? detail.expertise.slice(0,2).join(', ') : '';
-        return `<div class="agent-tag" title="${esc(a.role || detail.role || '')}">
+    const agentRows = agents.map(a => {
+      const detail = agentsDetail.find(d => d.id === a.id) || {};
+      const dotClass = `dot-${a.status || 'pending'}`;
+      const expertise = Array.isArray(detail.expertise) ? detail.expertise.slice(0,2).join(', ') : '';
+      const currentProvider = a.provider || 'claude';
+      const chips = [
+        { p: 'claude',     icon: '🔵' },
+        { p: 'codex-cli',  icon: '🟠' },
+        { p: 'gemini-cli', icon: '🟡' },
+      ].map(c =>
+        `<button class="agent-ai-chip${c.p === currentProvider ? ' active' : ''}" data-p="${c.p}"
+           onclick="selectAgentChip(this)" title="${c.p}">${c.icon}</button>`
+      ).join('');
+      return `<div class="agent-tag" style="flex-direction:column;align-items:flex-start;gap:6px" title="${esc(a.role || detail.role || '')}">
+        <div style="display:flex;align-items:center;gap:8px">
           <div class="dot ${dotClass}"></div>
           <div>
             <div style="font-weight:600;font-size:12px">${esc(a.name)}</div>
             ${expertise ? `<div style="font-size:10px;color:var(--muted);margin-top:2px">${esc(expertise)}</div>` : ''}
           </div>
-        </div>`;
-      }).join('')}</div>`;
+        </div>
+        <div class="agent-ai-selector" data-agent-id="${esc(a.id)}" style="margin-top:0">
+          ${chips}
+        </div>
+      </div>`;
+    }).join('');
+    agentsPanel.innerHTML = `
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+        <h3 style="margin:0">참여 에이전트 (${agents.length}명)</h3>
+        <button class="btn btn-sm" onclick="saveAgentProviders('${session.id || currentSessionId}')"
+          style="font-size:11px;padding:4px 10px">💾 다음 라운드 AI 저장</button>
+      </div>
+      <div class="agents-grid">${agentRows}</div>`;
+    // 저장되지 않은 칩 선택 복원
+    Object.entries(savedChips).forEach(([agentId, provider]) => {
+      const sel = agentsPanel.querySelector(`.agent-ai-selector[data-agent-id="${agentId}"]`);
+      if (!sel) return;
+      sel.querySelectorAll('.agent-ai-chip').forEach(c => c.classList.remove('active'));
+      const target = sel.querySelector(`.agent-ai-chip[data-p="${provider}"]`);
+      if (target) target.classList.add('active');
+    });
   }
 
   // Rounds
@@ -915,19 +932,48 @@ function renderRounds(session) {
     const sectionId = `round-section-${r}`;
     if (!document.getElementById(sectionId)) {
       const section = document.createElement('div');
-      section.className = 'round-section';
+      const isLatest = r === maxRound;
+      section.className = `round-section${isLatest ? ' open' : ''}`;
       section.id = sectionId;
-      section.innerHTML = buildRoundHTML(r, votes, conv, convRate, isConverged, roundFiles, session);
-      // Prepend or append
-      const existing = document.querySelectorAll('.round-section');
-      if (existing.length && existing[existing.length - 1].id.split('-')[2] < r) {
-        container.appendChild(section);
-      } else {
-        container.appendChild(section);
-      }
+
+      // 헤더 요약 정보
+      const qualityScore = votes?.overall_quality_score;
+      const changeCount = Array.isArray(votes?.agreed_changes) ? votes.agreed_changes.length : 0;
+      const releaseReady = votes?.release_ready;
+      const topIssues = Array.isArray(votes?.remaining_issues)
+        ? votes.remaining_issues.slice(0, 3).join(' · ')
+        : '';
+
+      const headerBadges = [
+        qualityScore != null ? `<span class="badge badge-gray">품질 ${qualityScore}/10</span>` : '',
+        changeCount ? `<span class="badge badge-running">변경 ${changeCount}건</span>` : '',
+        releaseReady ? '<span class="badge badge-converged">릴리즈 가능</span>' : '',
+        isConverged ? '<span class="badge badge-converged">수렴 ✓</span>' : '',
+      ].filter(Boolean).join('');
+
+      section.innerHTML = `
+        <div class="round-acc-header" onclick="toggleRound('${sectionId}')">
+          <span class="round-acc-toggle">▶</span>
+          <span class="round-number">Round ${r}</span>
+          <div class="round-acc-meta">
+            ${headerBadges}
+            ${topIssues ? `<span class="round-acc-issues">잔존: ${esc(topIssues)}</span>` : ''}
+          </div>
+        </div>
+        <div class="round-acc-body">
+          ${buildRoundHTML(r, votes, conv, convRate, isConverged, roundFiles, session)}
+        </div>`;
+
+      container.appendChild(section);
     }
     renderedRounds.add(r);
   }
+}
+
+function toggleRound(sectionId) {
+  const section = document.getElementById(sectionId);
+  if (!section) return;
+  section.classList.toggle('open');
 }
 
 function buildRoundHTML(r, votes, conv, convRate, isConverged, roundFiles, session) {
@@ -1160,129 +1206,134 @@ function renderLogs(logs) {
 }
 
 // ============================================================
-// 에이전트 확인 후 리뷰 시작
+// AI 추천 엔진 (텍스트 → winner)
 // ============================================================
-function selectReadyProfile(card) {
-  document.querySelectorAll('#readyAiProfileCards .ai-profile-card').forEach(c => c.classList.remove('active'));
-  card.classList.add('active');
-}
+const AI_SIGNALS = {
+  claude: {
+    keywords: [
+      '아키텍처','architecture','리팩터링','refactor','fsm','상태','state',
+      '의존성','dependency','설계','복잡','complex','디버깅','debug',
+      '마이그레이션','migration','스키마','schema','보안','security',
+      '클린','clean','레이어','layer','패턴','pattern','riverpod',
+      '코드베이스','codebase','flutter','dart','라이프사이클','lifecycle',
+      '추상화','abstraction','인터페이스','interface','도메인','domain',
+    ],
+    icon: '🔵', label: 'Claude', providerKey: 'claude',
+    shortReason: '깊은 분석·아키텍처·리팩터링',
+  },
+  codex: {
+    keywords: [
+      '테스트','test','커버리지','coverage','qa','릴리즈','release',
+      '배포','deploy','플랫폼','platform','android','ios','빌드','build',
+      '병렬','parallel','성능','performance','ci','검증','validate',
+      '위젯테스트','unit test','integration test','독립','isolated',
+      '스토어','store','출시','launch','앱스토어','monetization','수익화',
+    ],
+    icon: '🟠', label: 'Codex', providerKey: 'codex-cli',
+    shortReason: '플랫폼·테스트·릴리즈 병렬처리',
+  },
+  gemini: {
+    keywords: [
+      // 대규모 코드베이스 전체 조망 (1M 컨텍스트 강점)
+      '전체','overview','파악','wide','large','대규모','코드베이스 전체',
+      // 문서화·요약·리포트 중심
+      '문서화','요약','summary','리포트','report','정리','초안','draft',
+      // 중복·글로벌 패턴 탐지
+      '중복','duplicate','일관성','consistency','전반적','overall',
+      // 빠른 초안/빠른 훑기
+      '빠른','quick','파악','survey','scan',
+      // 기존 Google 생태계
+      'firebase','google','admob','cloud','mcp','api',
+    ],
+    icon: '🟡', label: 'Gemini', providerKey: 'gemini-cli',
+    shortReason: '대규모 코드베이스 조망·문서화·중복 탐지',
+  },
+};
 
-// ============================================================
-// AI 프로파일 추천 엔진
-// ============================================================
-function recommendAiProfile(session) {
-  const agents = session.agents || [];
-  const agentsDetail = (session.agents_detail?.agents || []);
-  const issues = session.detected_issues || [];
-
-  // 분석 대상 텍스트 합산
-  const corpus = [
-    session.topic || '',
-    session.language || '',
-    session.framework || '',
-    ...agents.map(a => `${a.name || ''} ${a.role || ''}`),
-    ...agentsDetail.map(a => [
-      a.role || '', a.focus || '', a.persona || '',
-      ...(Array.isArray(a.expertise) ? a.expertise : []),
-    ].join(' ')),
-    ...issues,
-  ].join(' ').toLowerCase();
-
-  // 각 AI 특화 키워드 (한/영 혼용)
-  const signals = {
-    claude: {
-      keywords: [
-        '아키텍처','architecture','리팩터링','refactor','fsm','상태','state',
-        '의존성','dependency','설계','복잡','complex','디버깅','debug',
-        '마이그레이션','migration','스키마','schema','보안','security',
-        '클린','clean','레이어','layer','패턴','pattern','riverpod',
-        '코드베이스','codebase','flutter','dart','라이프사이클','lifecycle',
-        '추상화','abstraction','인터페이스','interface','도메인','domain',
-      ],
-      label: 'Claude Code 권장',
-      icon: '🔵',
-      colorClass: 'claude',
-      reason: '복잡한 코드베이스 구조 파악 · 아키텍처 리팩터링 · 장기 디버깅에 Claude의 깊은 맥락 이해가 가장 효과적입니다.',
-    },
-    codex: {
-      keywords: [
-        '테스트','test','커버리지','coverage','qa','릴리즈','release',
-        '배포','deploy','플랫폼','platform','android','ios','빌드','build',
-        '병렬','parallel','성능','performance','ci','검증','validate',
-        '위젯테스트','integration test','unit test','독립','isolated',
-        '스토어','store','출시','launch','앱스토어',
-      ],
-      label: 'Codex CLI 권장',
-      icon: '🟠',
-      colorClass: 'codex',
-      reason: '테스트 · 플랫폼 검증 · 릴리즈 준비처럼 독립적이고 병렬 처리가 유리한 작업 비중이 높습니다.',
-    },
-    gemini: {
-      keywords: [
-        'mcp','api','external','외부','연동','자동화','automation',
-        '터미널','terminal','문서','documentation','generate','생성',
-        'plugin','플러그인','toolchain','google','firebase','cloud',
-        'scaffold','스캐폴드','openapi','swagger','webhook',
-      ],
-      label: 'Gemini CLI 권장',
-      icon: '🟡',
-      colorClass: 'gemini',
-      reason: 'API 연동 · 외부 툴체인 · 자동화 파이프라인 중심 작업에 Gemini CLI의 MCP 확장성이 유리합니다.',
-    },
-  };
-
-  // 점수 계산 + 매칭 키워드 수집
+function scoreText(text) {
+  const corpus = text.toLowerCase();
   const result = {};
-  for (const [id, s] of Object.entries(signals)) {
+  for (const [id, s] of Object.entries(AI_SIGNALS)) {
     const hits = s.keywords.filter(kw => corpus.includes(kw));
     result[id] = { ...s, score: hits.length, hits };
   }
-
-  // 승자 결정 (동점이면 claude 우선)
   const winner = ['claude', 'codex', 'gemini']
     .sort((a, b) => result[b].score - result[a].score)[0];
-
   return { winner, profiles: result };
 }
 
-function renderAiRecommendBox(rec) {
-  const w = rec.profiles[rec.winner];
-  // 상위 3개 히트 신호 + 나머지 후보 점수
-  const topHits = w.hits.slice(0, 5);
-  const others = Object.entries(rec.profiles)
-    .filter(([id]) => id !== rec.winner)
-    .map(([id, p]) => `${p.icon} ${p.label.replace(' 권장','')} ${p.score}pt`).join(' · ');
-
-  const signalHtml = topHits.length
-    ? topHits.map(kw => `<span class="ai-recommend-signal hit">${kw}</span>`).join('')
-      + (others ? `<span class="ai-recommend-signal" style="margin-left:4px">${others}</span>` : '')
-    : `<span class="ai-recommend-signal">신호 없음 — Claude 기본 권장</span>`;
-
-  return `<div class="ai-recommend-box ${w.colorClass}">
-    <div class="ai-recommend-icon">${w.icon}</div>
-    <div class="ai-recommend-body">
-      <div class="ai-recommend-title">✨ ${w.label}</div>
-      <div class="ai-recommend-reason">${w.reason}</div>
-      <div class="ai-recommend-signals">${signalHtml}</div>
-    </div>
-    <button class="btn-apply-recommend" onclick="applyRecommendedProfile('${rec.winner}')">이 AI 선택</button>
-  </div>`;
+// 에이전트 개별 추천
+function recommendAgentProvider(agent, agentDetail) {
+  const detail = agentDetail || {};
+  const corpus = [
+    agent.name || '', agent.role || '',
+    detail.role || '', detail.focus || '', detail.persona || '',
+    ...(Array.isArray(detail.expertise) ? detail.expertise : []),
+  ].join(' ');
+  return scoreText(corpus);
 }
 
-function applyRecommendedProfile(profileId) {
-  const card = document.querySelector(`#readyAiProfileCards .ai-profile-card[data-profile="${profileId}"]`);
-  if (card) selectReadyProfile(card);
+function selectAgentChip(chip) {
+  const group = chip.closest('.agent-ai-selector');
+  group?.querySelectorAll('.agent-ai-chip').forEach(c => c.classList.remove('active'));
+  chip.classList.add('active');
+}
+
+async function saveAgentProviders(sessionId) {
+  const agentProviders = [];
+  document.querySelectorAll('.agent-ai-selector[data-agent-id]').forEach(sel => {
+    const agentId = sel.dataset.agentId;
+    const active = sel.querySelector('.agent-ai-chip.active');
+    if (agentId && active) agentProviders.push({ id: agentId, provider: active.dataset.p });
+  });
+  if (!agentProviders.length) return;
+  const btn = event.currentTarget;
+  const orig = btn.textContent;
+  btn.disabled = true; btn.textContent = '저장 중...';
+  try {
+    const res = await fetch(`/api/code-review/session/${sessionId}/agent-providers`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ agents: agentProviders }),
+    });
+    btn.textContent = res.ok ? '✅ 저장됨' : '❌ 실패';
+  } catch (e) {
+    btn.textContent = '❌ 실패';
+  }
+  setTimeout(() => { btn.disabled = false; btn.textContent = orig; }, 2000);
 }
 
 async function confirmAndRunReview(sessionId) {
   const btn = event.currentTarget;
-  const aiProfile = document.querySelector('#readyAiProfileCards .ai-profile-card.active')?.dataset.profile || 'claude';
   btn.disabled = true; btn.textContent = '⟳ 리뷰 시작 중...';
+
+  // 에이전트별 provider 수집
+  const agentProviders = [];
+  document.querySelectorAll('.agent-ai-selector[data-agent-id]').forEach(sel => {
+    const agentId = sel.dataset.agentId;
+    const active = sel.querySelector('.agent-ai-chip.active');
+    if (agentId && active) agentProviders.push({ id: agentId, provider: active.dataset.p });
+  });
+
   try {
+    // 1. 에이전트별 provider 저장
+    if (agentProviders.length) {
+      const saveRes = await fetch(`/api/code-review/session/${sessionId}/agent-providers`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agents: agentProviders }),
+      });
+      if (!saveRes.ok) {
+        const err = await saveRes.json().catch(() => ({}));
+        console.error('agent-providers 저장 실패:', err);
+        // 저장 실패해도 run은 진행 (fallback: claude)
+      }
+    }
+    // 2. 리뷰 실행
     const res = await fetch('/api/code-review/run', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sessionId, aiProfile }),
+      body: JSON.stringify({ sessionId, aiProfile: 'claude' }),
     });
     if (res.ok) {
       // SSE가 상태 변경을 감지해서 UI 업데이트

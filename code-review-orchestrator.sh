@@ -54,6 +54,7 @@ py_get() { python3 -c "import json; d=json.load(open('$SESSION_DIR/meta.json'));
 TOPIC=$(py_get topic "")
 CONTEXT=$(py_get context "")
 PROJECT_DIR=$(py_get project_dir "$(pwd)")
+CODE_DIR=$(py_get code_dir "$PROJECT_DIR")  # 실제 코드 위치 (project_dir과 다를 수 있음)
 AGENT_COUNT=$(py_get agent_count "5")
 TOTAL_ROUNDS=$(py_get rounds "2")
 
@@ -61,6 +62,8 @@ TOTAL_ROUNDS=$(py_get rounds "2")
 # 디렉토리 & 환경
 # ============================================================
 mkdir -p "$LOG_DIR"
+# 7일 이상 된 로그 자동 삭제
+find "$LOG_DIR" -name "cr-*.log" -mtime +7 -delete 2>/dev/null || true
 
 SCRIPT_ENV="${SCRIPT_DIR}/.env"
 if [ -f "$SCRIPT_ENV" ]; then
@@ -193,20 +196,22 @@ call_codex_cli() {
     return 1
   fi
   local tmp; tmp=$(mktemp)
-  # exec --full-auto: 확인 없이 자동 실행
-  # --sandbox read-only: 파일 읽기만 허용 (쓰기 불가)
+  # 프롬프트를 stdin으로 전달 (ARG_MAX 한계 우회 + 긴 프롬프트 안전 처리)
+  # --skip-git-repo-check: git repo 아닌 디렉토리에서도 실행
+  # --sandbox read-only: 파일 읽기만 허용
   # --output-last-message: 최종 응답을 파일로 저장
-  # -C: 작업 디렉토리 (프로젝트 경로)
-  # OAuth 자격증명은 ~/.codex/auth.json 에서 자동 로드됨
-  if "$CODEX_BIN" exec --full-auto --sandbox read-only \
+  # -C: 프로젝트 작업 디렉토리
+  if printf '%s' "$prompt" | "$CODEX_BIN" exec --full-auto --sandbox read-only \
+      --skip-git-repo-check \
       -C "$dir" \
       --output-last-message "$tmp" \
-      "$prompt" >> "$log" 2>&1; then
+      >> "$log" 2>&1; then
     cat "$tmp"
     rm -f "$tmp"
     return 0
   else
-    echo "(Codex CLI 호출 실패)" >> "$log"
+    local exit_code=$?
+    echo "(Codex CLI 호출 실패 — exit=$exit_code)" >> "$log"
     rm -f "$tmp"
     return 1
   fi
@@ -373,23 +378,42 @@ run_cr_agent() {
   case "$provider" in
     "claude")
       local tmp; tmp=$(mktemp)
+      # stream-json: tool call·파일 읽기·생각 과정을 로그에 스트리밍
+      # tee로 log에 실시간 기록하면서 result만 추출
       if (cd "$PROJECT_DIR" && CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN" \
-          "$CLAUDE_BIN" --output-format json -p "$prompt") > "$tmp" 2>> "$log"; then
+          "$CLAUDE_BIN" --output-format stream-json --verbose -p "$prompt") \
+          2>> "$log" | tee -a "$log" > "$tmp"; then
         result=$(python3 -c "
 import json, sys
 data = sys.stdin.read().strip()
-try:
-    obj = json.loads(data)
-    if 'result' in obj: print(obj['result']); exit(0)
-except: pass
+# 1순위: type=result 라인에서 result 필드 추출
+for line in reversed(data.split('\n')):
+    line = line.strip()
+    if not line: continue
+    try:
+        obj = json.loads(line)
+        if obj.get('type') == 'result' and 'result' in obj:
+            print(obj['result']); exit(0)
+    except: pass
+# 2순위: assistant 메시지의 text 블록 추출 (JSON 원본 저장 방지)
+texts = []
 for line in data.split('\n'):
     line = line.strip()
     if not line: continue
     try:
         obj = json.loads(line)
-        if obj.get('type') == 'result' and 'result' in obj: print(obj['result']); exit(0)
+        if obj.get('type') == 'assistant':
+            for block in obj.get('message', {}).get('content', []):
+                if block.get('type') == 'text' and block.get('text','').strip():
+                    texts.append(block['text'])
     except: pass
-print(data)
+if texts:
+    print('\n'.join(texts)); exit(0)
+# 3순위: 텍스트 라인만 (JSON 라인 제외)
+plain = [l for l in data.split('\n') if l.strip() and not l.strip().startswith('{')]
+if plain:
+    print('\n'.join(plain[:200])); exit(0)
+print('(결과 없음)')
 " < "$tmp")
         ok=true
       fi
@@ -722,9 +746,12 @@ except: print('?')
     PREV_SCORE_LINE=""
     if [ "$round" -gt 1 ]; then
       prev=$((round - 1))
-      MY_PREV=$(cat "$SESSION_DIR/round-${prev}/${id}.md" 2>/dev/null || echo "(없음)")
-      PREV_APPLIED=$(head -200 "$SESSION_DIR/round-${prev}/apply-changes.md" 2>/dev/null || echo "(없음)")
-      PREV_REVIEW=$(head -150 "$SESSION_DIR/round-${prev}/code-reviewer.md" 2>/dev/null || echo "(없음)")
+      # 이전 분석: 코드 블록 제거 후 80줄로 제한 (코드 예시는 현재 파일을 직접 읽어 확인)
+      MY_PREV=$(sed '/^```/,/^```$/d' "$SESSION_DIR/round-${prev}/${id}.md" 2>/dev/null | head -80 || echo "(없음)")
+      # 적용된 변경사항: 파일명과 요약만 (50줄)
+      PREV_APPLIED=$(head -50 "$SESSION_DIR/round-${prev}/apply-changes.md" 2>/dev/null || echo "(없음)")
+      # 코드 리뷰어 피드백: 핵심만 (40줄)
+      PREV_REVIEW=$(head -40 "$SESSION_DIR/round-${prev}/code-reviewer.md" 2>/dev/null || echo "(없음)")
       PREV_SCORE=$(python3 -c "
 import json
 try:
@@ -761,6 +788,7 @@ ${PREV_REVIEW}
 한국어로 응답하세요. 페르소나에 맞는 어조와 관점을 유지하세요.
 
 프로젝트: ${PROJECT_DIR}
+코드 위치: ${CODE_DIR}
 리뷰 목표: ${TOPIC}
 언어/프레임워크: ${LANGUAGE}
 현재 라운드: ${round}/${TOTAL_ROUNDS}
