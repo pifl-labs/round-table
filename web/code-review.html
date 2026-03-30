@@ -49,7 +49,22 @@
   .form-context textarea:focus { outline: none; border-color: var(--purple); }
   .form-context textarea::placeholder { color: var(--muted); }
 
-  .form-row3 { display: grid; grid-template-columns: 140px 120px 1fr; gap: 12px; margin-bottom: 20px; align-items: end; }
+  .form-row3 { display: grid; grid-template-columns: 140px 120px 1fr; gap: 12px; margin-bottom: 16px; align-items: end; }
+
+  /* AI Profile Selector */
+  .ai-profile-section { margin-bottom: 20px; }
+  .ai-profile-label { display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin-bottom: 10px; }
+  .ai-profile-cards { display: flex; gap: 8px; flex-wrap: wrap; }
+  .ai-profile-card { flex: 1; min-width: 160px; display: flex; align-items: flex-start; gap: 10px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px; cursor: pointer; transition: all 0.15s; background: var(--bg); }
+  .ai-profile-card:hover { border-color: var(--teal); }
+  .ai-profile-card.active { border-color: var(--teal); background: rgba(20,184,166,0.07); }
+  .ai-profile-icon { font-size: 18px; line-height: 1; margin-top: 2px; }
+  .ai-profile-name { font-size: 13px; font-weight: 700; margin-bottom: 3px; display: flex; align-items: center; gap: 6px; }
+  .ai-profile-desc { font-size: 11px; color: var(--muted); line-height: 1.5; }
+  .ai-profile-cost { color: #fb923c; font-size: 10px; }
+  .ai-badge-rec { background: rgba(20,184,166,0.2); color: var(--teal); font-size: 10px; padding: 1px 6px; border-radius: 10px; font-weight: 600; }
+  .ai-profile-hint { margin-top: 10px; font-size: 12px; color: var(--muted); background: rgba(251,191,36,0.07); border: 1px solid rgba(251,191,36,0.2); border-radius: 8px; padding: 8px 12px; line-height: 1.6; }
+  .ai-profile-hint code { background: var(--card); padding: 1px 5px; border-radius: 3px; font-size: 11px; font-family: monospace; color: var(--teal); }
   .field-group { display: flex; flex-direction: column; gap: 6px; }
   .field-group label { font-size: 12px; font-weight: 600; color: var(--muted); letter-spacing: 0.04em; text-transform: uppercase; }
   .field-group input[type=number] {
@@ -155,20 +170,54 @@
   .sub-panel { display: none; }
   .sub-panel.active { display: block; }
 
-  /* Agent review cards inside a round */
-  .review-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; margin-bottom: 12px; }
-  .review-card { background: var(--bg); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
-  .review-card-header { padding: 10px 14px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
-  .review-card-name { font-size: 13px; font-weight: 600; }
-  .review-card-body { padding: 12px 14px; font-size: 12px; line-height: 1.7; color: var(--muted); max-height: 300px; overflow-y: auto; }
-  .review-card-body .md-content h3 { font-size: 12px; font-weight: 700; color: var(--text); margin: 10px 0 4px; }
-  .review-card-body .md-content p { margin-bottom: 6px; }
-  .review-card-body .md-content ul { padding-left: 14px; }
-  .review-card-body .md-content li { margin-bottom: 3px; }
-  .review-card-body .md-content strong { color: var(--text); }
-  .review-card-body .md-content code { background: var(--card); padding: 1px 5px; border-radius: 3px; font-size: 11px; }
-  .review-card-body .md-content hr { border: none; border-top: 2px solid var(--border); margin: 14px 0; }
-  .review-card-body .md-content del, .review-card-body .md-content s { color: var(--muted); text-decoration: none; font-style: italic; opacity: 0.75; }
+  /* Agent review — selector + full-width panel */
+  .agent-review-wrap { display: flex; flex-direction: column; }
+
+  /* Round summary strip */
+  .round-summary { padding: 12px 16px; background: rgba(255,255,255,0.02); border-bottom: 1px solid var(--border); display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-start; }
+  .agent-summary-chip { display: flex; align-items: center; gap: 6px; padding: 5px 10px; background: var(--card); border: 1px solid var(--border); border-radius: 8px; flex: 1; min-width: 160px; max-width: 260px; cursor: pointer; transition: border-color 0.15s; }
+  .agent-summary-chip:hover { border-color: var(--teal); }
+  .agent-summary-chip .chip-name { font-size: 11px; font-weight: 700; color: var(--text); white-space: nowrap; }
+  .agent-summary-chip .chip-preview { font-size: 10px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 140px; }
+
+  /* Agent selector tabs */
+  .agent-selector { display: flex; gap: 6px; flex-wrap: wrap; padding: 12px 16px; border-bottom: 1px solid var(--border); }
+  .agent-btn { padding: 6px 16px; border-radius: 20px; border: 1px solid var(--border); background: transparent; color: var(--muted); cursor: pointer; font-size: 12px; font-weight: 600; font-family: inherit; transition: all 0.15s; white-space: nowrap; }
+  .agent-btn:hover { border-color: var(--teal); color: var(--text); }
+  .agent-btn.active { background: rgba(20,184,166,0.15); border-color: var(--teal); color: var(--teal); }
+
+  /* Agent full-width review panel */
+  .agent-panels { }
+  .agent-full-panel { display: none; }
+  .agent-full-panel.active { display: block; }
+  .agent-panel-header { display: flex; align-items: center; gap: 12px; padding: 16px 24px; border-bottom: 1px solid var(--border); background: rgba(20,184,166,0.04); }
+  .agent-panel-name { font-size: 15px; font-weight: 700; color: var(--teal); }
+  .agent-panel-role { font-size: 12px; color: var(--muted); }
+  .agent-panel-body { padding: 24px; }
+
+  /* Prose rendering (full-width markdown) */
+  .md-render { font-size: 14px; line-height: 1.75; color: var(--text); }
+  .md-render h1 { font-size: 20px; font-weight: 700; margin: 0 0 16px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+  .md-render h2 { font-size: 16px; font-weight: 700; margin: 24px 0 10px; color: var(--teal); }
+  .md-render h3 { font-size: 13px; font-weight: 700; margin: 16px 0 6px; color: var(--text); text-transform: uppercase; letter-spacing: 0.04em; }
+  .md-render p { margin-bottom: 10px; }
+  .md-render ul, .md-render ol { padding-left: 20px; margin-bottom: 10px; }
+  .md-render li { margin-bottom: 4px; }
+  .md-render strong { color: var(--text); font-weight: 700; }
+  .md-render em { color: var(--muted); }
+  .md-render code { background: var(--card); border: 1px solid var(--border); padding: 1px 6px; border-radius: 4px; font-size: 12px; font-family: monospace; }
+  .md-render pre { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; overflow-x: auto; margin: 12px 0; }
+  .md-render pre code { background: none; border: none; padding: 0; font-size: 12px; }
+  .md-render blockquote { border-left: 3px solid var(--teal); padding: 8px 16px; margin: 12px 0; background: rgba(20,184,166,0.05); border-radius: 0 6px 6px 0; color: var(--muted); }
+  .md-render hr { border: none; border-top: 1px solid var(--border); margin: 20px 0; }
+  .md-render del, .md-render s { text-decoration: line-through; color: var(--muted); opacity: 0.7; }
+  /* Table — full-width, readable */
+  .md-render table { width: 100%; border-collapse: collapse; font-size: 13px; margin: 16px 0; overflow-x: auto; display: block; }
+  .md-render thead { background: var(--card); }
+  .md-render th { padding: 9px 14px; text-align: left; border-bottom: 2px solid var(--border); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; white-space: nowrap; }
+  .md-render td { padding: 9px 14px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  .md-render tr:last-child td { border-bottom: none; }
+  .md-render tbody tr:hover td { background: rgba(255,255,255,0.025); }
 
   /* Vote card */
   .vote-card { background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 16px; margin-bottom: 12px; }
@@ -283,18 +332,43 @@
   /* Continue button area */
   /* Continue banner */
   .continue-banner {
-    margin: 0 24px 0; padding: 14px 20px;
+    margin: 0 24px 16px; padding: 14px 20px;
     background: rgba(139,92,246,0.08); border: 1px solid rgba(139,92,246,0.3);
-    border-radius: 10px; display: flex; align-items: center; justify-content: space-between; gap: 16px;
-    margin-bottom: 0; border-bottom-left-radius: 0; border-bottom-right-radius: 0;
-    border-bottom: none;
+    border-radius: 10px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px;
   }
-  .continue-banner-left { display: flex; align-items: center; gap: 12px; }
+  .continue-banner-left { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
   .continue-banner-icon { font-size: 18px; color: var(--green); }
   .continue-banner-title { font-size: 13px; font-weight: 700; color: var(--text); }
   .continue-banner-sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .continue-banner-body { flex: 1 1 300px; }
+  .continue-banner-body textarea {
+    width: 100%; resize: vertical; min-height: 48px; max-height: 96px;
+    background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+    color: var(--text); font-size: 12px; line-height: 1.5; padding: 8px 12px;
+    font-family: inherit;
+  }
+  .continue-banner-body textarea:focus { outline: none; border-color: rgba(139,92,246,0.5); }
+  .continue-banner-body textarea::placeholder { color: var(--muted); }
   .continue-banner-right { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
-  .continue-banner input { width: 70px; padding: 7px 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; color: var(--text); text-align: center; font-size: 14px; }
+  .continue-banner input[type="number"] { width: 70px; padding: 7px 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; color: var(--text); text-align: center; font-size: 14px; }
+
+  /* Feedback panel */
+  .feedback-panel { padding: 16px 24px; border-bottom: 1px solid var(--border); background: rgba(99,102,241,0.04); }
+  .feedback-panel-header { font-size: 12px; font-weight: 600; color: var(--purple); letter-spacing: 0.04em; text-transform: uppercase; margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
+  .feedback-panel-hint { font-weight: 400; color: var(--muted); font-size: 11px; text-transform: none; letter-spacing: 0; }
+  .feedback-input-row { display: flex; gap: 10px; margin-bottom: 10px; }
+  .feedback-input-row textarea { flex: 1; padding: 10px 14px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-size: 13px; resize: none; min-height: 54px; max-height: 120px; line-height: 1.5; font-family: inherit; transition: border-color 0.15s; }
+  .feedback-input-row textarea:focus { outline: none; border-color: var(--purple); }
+  .feedback-input-row textarea::placeholder { color: var(--muted); }
+  .btn-feedback { padding: 8px 16px; background: var(--purple); color: #fff; border: none; border-radius: 8px; cursor: pointer; font-size: 13px; font-weight: 700; white-space: nowrap; align-self: flex-end; transition: opacity 0.15s; }
+  .btn-feedback:hover { opacity: 0.85; }
+  .feedback-list { display: flex; flex-direction: column; gap: 6px; }
+  .feedback-item { display: flex; align-items: flex-start; gap: 10px; padding: 8px 12px; background: var(--bg); border: 1px solid rgba(99,102,241,0.2); border-radius: 8px; }
+  .feedback-item.used { opacity: 0.6; }
+  .feedback-item-text { flex: 1; font-size: 12px; line-height: 1.5; color: var(--text); }
+  .feedback-item-meta { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .feedback-item-del { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 13px; padding: 2px 5px; border-radius: 4px; line-height: 1; flex-shrink: 0; }
+  .feedback-item-del:hover { color: var(--red); }
 
   /* Empty state */
   .empty { text-align: center; padding: 48px 24px; color: var(--muted); font-size: 14px; }
@@ -312,8 +386,11 @@
 <div class="header">
   <span class="icon">🔍</span>
   <h1>Code Review</h1>
-  <div class="sub">Multi-Agent 코드 리뷰 &amp; 자동 수정</div>
-  <a href="/" class="nav-link">← Round Table</a>
+  <div style="margin-left:auto;display:flex;gap:8px;">
+    <a href="/" class="nav-link">🏴 토론</a>
+    <a href="/code-review" class="nav-link" style="color:var(--accent);border-color:var(--accent);">🔍 코드 리뷰</a>
+    <a href="/task" class="nav-link">🔧 작업 파이프라인</a>
+  </div>
 </div>
 
 <div class="container">
@@ -339,6 +416,36 @@
       <div class="field-group">
         <label>프로젝트</label>
         <select id="project"><option value="">로딩 중...</option></select>
+      </div>
+    </div>
+    <!-- AI 구성 선택 -->
+    <div class="ai-profile-section">
+      <label class="ai-profile-label">AI 구성 추천</label>
+      <div class="ai-profile-cards" id="aiProfileCards">
+        <div class="ai-profile-card active" data-profile="claude" onclick="selectAiProfile(this)">
+          <div class="ai-profile-icon">🔵</div>
+          <div class="ai-profile-info">
+            <div class="ai-profile-name">Claude 전용</div>
+            <div class="ai-profile-desc">파일 직접 탐색 · 높은 정확도<br><span class="ai-profile-cost">토큰 소모 많음</span></div>
+          </div>
+        </div>
+        <div class="ai-profile-card" data-profile="gemini-cli" onclick="selectAiProfile(this)">
+          <div class="ai-profile-icon">🟡</div>
+          <div class="ai-profile-info">
+            <div class="ai-profile-name">Gemini CLI <span class="ai-badge-rec">절약</span></div>
+            <div class="ai-profile-desc">Claude(탐색) + Gemini CLI(분석)<br><span class="ai-profile-cost">무료 · Google 계정 로그인만 필요</span></div>
+          </div>
+        </div>
+        <div class="ai-profile-card" data-profile="codex-cli" onclick="selectAiProfile(this)">
+          <div class="ai-profile-icon">🟠</div>
+          <div class="ai-profile-info">
+            <div class="ai-profile-name">Codex CLI <span class="ai-badge-rec">절약</span></div>
+            <div class="ai-profile-desc">Claude(탐색) + Codex CLI(분석)<br><span class="ai-profile-cost">무료 · ChatGPT 계정 로그인만 필요</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="ai-profile-hint" id="aiProfileHint">
+        🔵 <strong>Claude 전용</strong> — 파일을 직접 읽고 탐색. 가장 정확한 분석을 제공합니다.
       </div>
     </div>
     <div class="form-actions">
@@ -369,6 +476,15 @@
         <div class="agents-grid" id="agentsGrid"></div>
       </div>
 
+      <div class="feedback-panel" id="feedbackPanel" style="display:none">
+        <div class="feedback-panel-header">💬 의견 등록 <span class="feedback-panel-hint">다음 라운드에 반영됩니다</span></div>
+        <div class="feedback-input-row">
+          <textarea id="feedbackText" placeholder="'보안 측면에서 더 깊이 분석해주세요', '이 패턴은 긍정적으로 재검토해주세요' 등..." oninput="autoResizeFeedback(this)"></textarea>
+          <button class="btn-feedback" onclick="submitFeedback()">등록</button>
+        </div>
+        <div id="feedbackList" class="feedback-list"></div>
+      </div>
+
       <div class="continue-banner" id="continueBanner" style="display:none">
         <div class="continue-banner-left">
           <span class="continue-banner-icon">✓</span>
@@ -376,6 +492,9 @@
             <div class="continue-banner-title">리뷰 완료</div>
             <div class="continue-banner-sub" id="continueBannerSub">더 깊이 분석하려면 라운드를 추가하세요</div>
           </div>
+        </div>
+        <div class="continue-banner-body">
+          <textarea id="continueDirections" placeholder="추가 의견 (선택사항) — '보안 취약점을 더 깊이 분석해주세요', '성능 개선에 집중해주세요' 등..." rows="2"></textarea>
         </div>
         <div class="continue-banner-right">
           <span style="font-size:12px;color:var(--muted)">추가 라운드</span>
@@ -509,6 +628,19 @@ function statusBadge(status, converged) {
 // ============================================================
 // Start Review
 // ============================================================
+function selectAiProfile(card) {
+  document.querySelectorAll('.ai-profile-card').forEach(c => c.classList.remove('active'));
+  card.classList.add('active');
+  const profile = card.dataset.profile;
+  const hint = document.getElementById('aiProfileHint');
+  const hints = {
+    'claude': '🔵 <strong>Claude 전용</strong> — 파일을 직접 읽고 탐색. 가장 정확한 분석을 제공합니다.',
+    'gemini-cli': '🟡 <strong>Gemini CLI</strong> — Gemini CLI가 파일을 직접 읽고 분석. 터미널에서 <code>gemini</code> 로그인 후 사용. Claude 토큰 절약.',
+    'codex-cli': '🟠 <strong>Codex CLI</strong> — Codex CLI가 파일을 직접 읽고 분석. 터미널에서 <code>codex</code> 로그인 후 사용. Claude 토큰 절약.',
+  };
+  if (hint) hint.innerHTML = hints[profile] || '';
+}
+
 async function startReview() {
   const topic = document.getElementById('topic').value.trim();
   if (!topic) { alert('리뷰 목표를 입력하세요.'); return; }
@@ -516,6 +648,7 @@ async function startReview() {
   const rounds = parseInt(document.getElementById('rounds').value) || 2;
   const agentCount = parseInt(document.getElementById('agentCount').value) || 5;
   const projectDir = document.getElementById('project').value;
+  const aiProfile = document.querySelector('.ai-profile-card.active')?.dataset.profile || 'claude';
 
   const btn = document.getElementById('startBtn');
   btn.disabled = true; btn.textContent = '⟳ 에이전트 생성 중...';
@@ -524,7 +657,7 @@ async function startReview() {
     const res = await fetch('/api/code-review/start', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ topic, context, rounds, agentCount, projectDir }),
+      body: JSON.stringify({ topic, context, rounds, agentCount, projectDir, aiProfile }),
     });
     if (res.ok) {
       const { sessionId } = await res.json();
@@ -682,6 +815,15 @@ function renderSessionDetail(session) {
   } else {
     continueBanner.style.display = 'none';
   }
+
+  // Show feedback panel for running or completed sessions
+  const feedbackPanel = document.getElementById('feedbackPanel');
+  if (['running', 'completed'].includes(session.status)) {
+    feedbackPanel.style.display = '';
+    loadFeedback();
+  } else {
+    feedbackPanel.style.display = 'none';
+  }
 }
 
 function qualityBadge(score) {
@@ -740,24 +882,59 @@ function renderRounds(session) {
 }
 
 function buildRoundHTML(r, votes, conv, convRate, isConverged, roundFiles, session) {
+  const panelId = (name) => `r${r}-${name}`;
+
   // Agent IDs from session
   const agentIds = (session.agents || []).map(a => a.id);
   const agentNames = {};
   (session.agents || []).forEach(a => { agentNames[a.id] = a.name; });
 
-  // Agents review sub-tab content
-  const agentReviews = agentIds.map(id => {
-    const content = roundFiles[`${id}.md`] || '';
-    if (!content) return '';
-    return `<div class="review-card">
-      <div class="review-card-header">
-        <span class="review-card-name">${esc(agentNames[id] || id)}</span>
-      </div>
-      <div class="review-card-body">
-        <div class="md-content">${marked.parse(content)}</div>
+  // Agents review — selector tabs + full-width panels
+  const agentData = agentIds.map(id => ({
+    id,
+    name: agentNames[id] || id,
+    role: (session.agents || []).find(a => a.id === id)?.role || '',
+    content: roundFiles[`${id}.md`] || '',
+  }));
+
+  // Round summary strip (chips with 1-line preview)
+  const summaryChips = agentData.map((a, i) => {
+    const preview = a.content.replace(/#+\s/g, '').replace(/\n/g, ' ').replace(/\*\*/g, '').slice(0, 80);
+    return `<div class="agent-summary-chip" onclick="selectAgentPanel('${panelId('sel')}','${panelId('panels')}','${a.id}')">
+      <div>
+        <div class="chip-name">${esc(a.name)}</div>
+        <div class="chip-preview">${esc(preview) || '분석 중...'}</div>
       </div>
     </div>`;
   }).join('');
+
+  // Agent selector tabs
+  const selectorTabs = agentData.map((a, i) =>
+    `<button class="agent-btn${i === 0 ? ' active' : ''}" data-agent="${a.id}"
+       onclick="selectAgentPanel('${panelId('sel')}','${panelId('panels')}','${a.id}')">${esc(a.name)}</button>`
+  ).join('');
+
+  // Full-width agent panels
+  const agentPanels = agentData.map((a, i) => {
+    const body = a.content
+      ? `<div class="md-render">${marked.parse(a.content)}</div>`
+      : '<div class="empty" style="padding:40px"><div class="icon">⏳</div>분석 대기 중...</div>';
+    return `<div class="agent-full-panel${i === 0 ? ' active' : ''}" data-agent="${a.id}">
+      <div class="agent-panel-header">
+        <div>
+          <div class="agent-panel-name">${esc(a.name)}</div>
+          ${a.role ? `<div class="agent-panel-role">${esc(a.role)}</div>` : ''}
+        </div>
+      </div>
+      <div class="agent-panel-body">${body}</div>
+    </div>`;
+  }).join('');
+
+  const agentReviewsHTML = `<div class="agent-review-wrap">
+    <div class="round-summary">${summaryChips || '<span style="color:var(--muted);font-size:12px">에이전트 분석 대기 중...</span>'}</div>
+    <div class="agent-selector" id="${panelId('sel')}">${selectorTabs}</div>
+    <div class="agent-panels" id="${panelId('panels')}">${agentPanels}</div>
+  </div>`;
 
   // Votes content
   const agreedChanges = votes?.agreed_changes || [];
@@ -826,7 +1003,6 @@ function buildRoundHTML(r, votes, conv, convRate, isConverged, roundFiles, sessi
     </div>`;
   }
 
-  const panelId = (name) => `r${r}-${name}`;
   return `<div class="round-header">
     <span class="round-number">Round ${r}</span>
     <div class="round-badges">
@@ -843,12 +1019,24 @@ function buildRoundHTML(r, votes, conv, convRate, isConverged, roundFiles, sessi
     ${conv ? `<div class="sub-tab" onclick="switchSubTab(this,'${panelId('conv')}')">수렴 확인</div>` : ''}
   </div>
   <div class="sub-panel active" id="${panelId('reviews')}">
-    <div class="review-grid">${agentReviews}</div>
+    ${agentReviewsHTML}
   </div>
   <div class="sub-panel" id="${panelId('votes')}">${votesHTML}</div>
   <div class="sub-panel" id="${panelId('apply')}">${applyHTML}</div>
   <div class="sub-panel" id="${panelId('reviewer')}">${reviewerHTML}</div>
   ${conv ? `<div class="sub-panel" id="${panelId('conv')}">${convHTML}</div>` : ''}`;
+}
+
+function selectAgentPanel(selectorId, panelsId, agentId) {
+  const selector = document.getElementById(selectorId);
+  const panels = document.getElementById(panelsId);
+  if (!selector || !panels) return;
+  selector.querySelectorAll('.agent-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.agent === agentId);
+  });
+  panels.querySelectorAll('.agent-full-panel').forEach(p => {
+    p.classList.toggle('active', p.dataset.agent === agentId);
+  });
 }
 
 function switchSubTab(el, panelId) {
@@ -1046,9 +1234,19 @@ function showFile(path) {
 async function continueReview() {
   if (!currentSessionId) return;
   const rounds = parseInt(document.getElementById('addRounds').value) || 1;
+  const directions = document.getElementById('continueDirections')?.value?.trim() || '';
   const btn = event.currentTarget;
   btn.disabled = true; btn.textContent = '시작 중...';
   try {
+    // 추가 의견이 있으면 피드백으로 먼저 저장
+    if (directions) {
+      await fetch(`/api/code-review/session/${currentSessionId}/feedback`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: directions }),
+      });
+      document.getElementById('continueDirections').value = '';
+    }
     await fetch('/api/code-review/continue', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1079,6 +1277,63 @@ function switchTab(name) {
 // ============================================================
 function esc(str) {
   return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ============================================================
+// Feedback
+// ============================================================
+function autoResizeFeedback(el) {
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+}
+
+async function loadFeedback() {
+  if (!currentSessionId) return;
+  try {
+    const res = await fetch(`/api/code-review/session/${currentSessionId}/feedback`);
+    if (!res.ok) return;
+    const data = await res.json();
+    renderFeedbackList(data.feedbacks || []);
+  } catch {}
+}
+
+function renderFeedbackList(feedbacks) {
+  const el = document.getElementById('feedbackList');
+  if (!el) return;
+  if (!feedbacks.length) { el.innerHTML = ''; return; }
+  el.innerHTML = feedbacks.map((fb, i) => `
+    <div class="feedback-item ${fb.used ? 'used' : ''}">
+      <div style="flex:1">
+        <div class="feedback-item-text">${esc(fb.text)}</div>
+        <div class="feedback-item-meta">${fb.used ? '✓ 반영됨' + (fb.used_at_round ? ' (Round ' + fb.used_at_round + ')' : '') : '⏳ 다음 라운드에 반영 예정'}</div>
+      </div>
+      ${!fb.used ? `<button class="feedback-item-del" onclick="deleteFeedback(${i})" title="삭제">✕</button>` : ''}
+    </div>
+  `).join('');
+}
+
+async function submitFeedback() {
+  if (!currentSessionId) return;
+  const ta = document.getElementById('feedbackText');
+  const text = ta.value.trim();
+  if (!text) return;
+  try {
+    await fetch(`/api/code-review/session/${currentSessionId}/feedback`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+    });
+    ta.value = ''; ta.style.height = '';
+    await loadFeedback();
+  } catch {}
+}
+
+async function deleteFeedback(idx) {
+  if (!currentSessionId) return;
+  try {
+    await fetch(`/api/code-review/session/${currentSessionId}/feedback/${idx}`, { method: 'DELETE' });
+    await loadFeedback();
+  } catch {}
 }
 </script>
 </body>

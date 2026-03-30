@@ -53,7 +53,12 @@ else
   ROUNDS="${2:-2}"
   AGENTS_ARG="${3:-analyst,developer,critic}"
   PROJECT_DIR="${4:-$(pwd)}"
-  TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+  # Optional pre-generated session ID from server
+  if [ -n "${5:-}" ]; then
+    TIMESTAMP="${5}"
+  else
+    TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+  fi
   SESSION_DIR="${SCRIPT_DIR}/sessions/${TIMESTAMP}"
   START_DEBATE_ROUND=2
   TOTAL_ROUNDS=$ROUNDS
@@ -96,6 +101,18 @@ if [ ! -x "$CLAUDE_BIN" ]; then
   echo "   또는 CLAUDE_BIN 환경변수로 경로를 지정하세요." >&2
   exit 1
 fi
+
+# Codex CLI 탐지 (선택)
+CODEX_BIN="${CODEX_BIN:-$(which codex 2>/dev/null || true)}"
+for candidate in "/opt/homebrew/bin/codex" "$HOME/.local/bin/codex" "/usr/local/bin/codex"; do
+  [ -x "$candidate" ] && { CODEX_BIN="$candidate"; break; }
+done
+
+# Gemini CLI 탐지 (선택)
+GEMINI_BIN="${GEMINI_BIN:-$(which gemini 2>/dev/null || true)}"
+for candidate in "/opt/homebrew/bin/gemini" "$HOME/.local/bin/gemini" "/usr/local/bin/gemini"; do
+  [ -x "$candidate" ] && { GEMINI_BIN="$candidate"; break; }
+done
 
 # Token: env var > shell rc files
 if [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
@@ -196,23 +213,39 @@ get_agent_prompt_r1() {
 DEBATE_PROMPT_BASE="당신은 {AGENT_NAME}입니다. 한국어로 응답하세요.
 
 토픽: {TOPIC}
+프로젝트: {PROJECT_DIR}
+
+=== 나({AGENT_NAME})의 Round {PREV_ROUND} 의견 ===
+{MY_PREV_OUTPUT}
 
 === Round {PREV_ROUND} 다른 전문가들의 의견 ===
 {PREV_OUTPUTS}
 
-위 의견들을 읽고 다음을 작성하세요:
+---
 
-### 동의하는 포인트 (이유 포함)
-각 전문가의 의견 중 수용할 근거가 있는 포인트를 구체적으로 언급하세요.
+지시사항:
+- 주장을 뒷받침할 구체적인 근거(데이터, 코드, 사례)가 필요하면 WebSearch 또는 Read/Grep으로 직접 확인하세요.
+- 막연한 의견이 아닌 검증된 사실에 기반해 작성하세요.
 
-### 반박하는 포인트 (구체적 반론)
-동의하지 않는 부분에 대해 데이터나 논리로 반박하세요. 감정적 반박 금지.
+다음 형식으로 상세하게 작성하세요:
 
-### 이전 라운드에서 놓친 새로운 관점
-앞선 토론에서 언급되지 않은 중요한 요소를 제시하세요.
+### {AGENT_NAME} — Round {CURR_ROUND} 분석
 
-### {AGENT_NAME}의 수정된 최종 입장
-이전 라운드 자신의 의견과 비교해 무엇이 바뀌었고 왜 바뀌었는지 명확히 서술하세요."
+#### 나의 이전 입장 재검토
+Round {PREV_ROUND}에서 내가 주장한 핵심 포인트를 재확인하고, 지금도 유효한지 평가하세요.
+(유효: 유지 이유 / 수정: 무엇이 바뀌었고 왜)
+
+#### 다른 전문가 의견에 대한 반응
+각 전문가별로:
+- **[전문가명]**: 동의/반박 + 구체적 근거 (단순 "좋은 의견" 금지)
+
+#### 새로운 발견 또는 추가 분석
+이번 라운드에서 새로 조사/분석한 내용을 제시하세요. 근거 URL이나 코드 위치 포함.
+
+#### {AGENT_NAME}의 수정된 최종 입장
+- 핵심 주장 (3줄 이내, 명확하고 구체적으로)
+- 이전 라운드 대비 변화: 무엇이 왜 바뀌었는가 (바뀐 게 없으면 그 이유)
+- 의사결정에 반드시 반영되어야 할 조건이나 전제"
 
 # ============================================================
 # === Helper Functions ===
@@ -247,17 +280,77 @@ except: pass
 
 run_agent() {
   local id="$1" label="$2" prompt="$3" output="$4"
-  echo "[$(date +%H:%M:%S)] ${label} 시작..." >> "$LOG_DIR/${id}.log"
+  local log="$LOG_DIR/${id}.log"
+  local tmp
+  tmp=$(mktemp)
+
+  echo "[$(date +%H:%M:%S)] ${label} 시작..." >> "$log"
   update_agent_status "$id" "running"
 
+  local ok=false
   if (cd "$PROJECT_DIR" && CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN" \
-      "$CLAUDE_BIN" -p "$prompt") > "$output" 2>> "$LOG_DIR/${id}.log"; then
+      "$CLAUDE_BIN" --output-format json -p "$prompt") > "$tmp" 2>> "$log"; then
+    ok=true
+  fi
+
+  if [ "$ok" = true ]; then
+    python3 -c "
+import json, sys
+data = sys.stdin.read().strip()
+try:
+    obj = json.loads(data)
+    if 'result' in obj: print(obj['result']); exit(0)
+except: pass
+for line in data.split('\n'):
+    line = line.strip()
+    if not line: continue
+    try:
+        obj = json.loads(line)
+        if obj.get('type') == 'result' and 'result' in obj: print(obj['result']); exit(0)
+    except: pass
+print(data)
+" < "$tmp" > "$output"
     update_agent_status "$id" "done"
-    echo "[$(date +%H:%M:%S)] ${label} 완료 ✓" >> "$LOG_DIR/${id}.log"
+    echo "[$(date +%H:%M:%S)] ${label} 완료 ✓" >> "$log"
   else
     update_agent_status "$id" "error"
-    echo "[$(date +%H:%M:%S)] ${label} 실패 (exit: $?)" >> "$LOG_DIR/${id}.log"
+    echo "[$(date +%H:%M:%S)] ${label} 실패" >> "$log"
   fi
+  rm -f "$tmp"
+}
+
+# run_agent_codex: Codex CLI로 에이전트 실행
+# claude -p 대신 codex exec --full-auto 사용 — 파일 직접 읽기 가능
+# 호출: run_agent_codex ID LABEL PROMPT OUTPUT_FILE
+run_agent_codex() {
+  local id="$1" label="$2" prompt="$3" output="$4"
+  local log="$LOG_DIR/${id}.log"
+  local tmp; tmp=$(mktemp)
+
+  if [ -z "${CODEX_BIN:-}" ] || [ ! -x "${CODEX_BIN}" ]; then
+    echo "[$(date +%H:%M:%S)] ${label} Codex CLI 없음 — Claude로 폴백" >> "$log"
+    run_agent "$id" "$label" "$prompt" "$output"
+    rm -f "$tmp"
+    return
+  fi
+
+  echo "[$(date +%H:%M:%S)] ${label} 시작 (codex)..." >> "$log"
+  update_agent_status "$id" "running"
+
+  # OAuth 자격증명은 ~/.codex/auth.json 에서 자동 로드됨 (API 키 불필요)
+  if "$CODEX_BIN" exec --full-auto --sandbox read-only \
+      -C "$PROJECT_DIR" \
+      --output-last-message "$tmp" \
+      "$prompt" >> "$log" 2>&1; then
+    cat "$tmp" > "$output"
+    update_agent_status "$id" "done"
+    echo "[$(date +%H:%M:%S)] ${label} 완료 ✓ (codex)" >> "$log"
+  else
+    update_agent_status "$id" "error"
+    echo "[$(date +%H:%M:%S)] ${label} 실패 — Claude로 폴백" >> "$log"
+    run_agent "$id" "$label" "$prompt" "$output"
+  fi
+  rm -f "$tmp"
 }
 
 # ============================================================
@@ -330,15 +423,44 @@ for round in $(seq "$START_DEBATE_ROUND" "$TOTAL_ROUNDS"); do
   echo ""
   echo "[Round ${round}/$(($TOTAL_ROUNDS+1))] 토론 라운드 시작 (병렬)..."
 
+  # === 사용자 피드백 확인 (라운드별 1회) ===
+  FEEDBACK_FILE="${SESSION_DIR}/user-feedback.json"
+  USER_FEEDBACK_SECTION=""
+  if [ -f "$FEEDBACK_FILE" ]; then
+    USER_FEEDBACK_SECTION=$(python3 -c "
+import json
+try:
+    with open('${FEEDBACK_FILE}') as f:
+        data = json.load(f)
+    pending = [fb for fb in data.get('feedbacks', []) if not fb.get('used', False)]
+    if pending:
+        lines = ['\n\n=== 사용자 지시사항 (이번 라운드에 반드시 반영) ===']
+        for fb in pending:
+            lines.append('- ' + fb['text'])
+        for fb in data['feedbacks']:
+            if not fb.get('used', False):
+                fb['used'] = True
+                fb['used_at_round'] = ${round}
+        with open('${FEEDBACK_FILE}', 'w') as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        print('\n'.join(lines))
+except Exception:
+    pass
+" 2>/dev/null)
+  fi
+
   for id in "${SELECTED_AGENTS[@]}"; do
     name="$(get_agent_name "$id")"
 
-    # 이전 라운드의 다른 에이전트 출력 수집
+    # 자신의 이전 라운드 출력
+    MY_PREV_OUTPUT=$(cat "$SESSION_DIR/round-${prev}/${id}.md" 2>/dev/null || echo "(없음)")
+
+    # 다른 에이전트 출력 수집 (head 제한 확대)
     PREV_OUTPUTS=""
     for other_id in "${SELECTED_AGENTS[@]}"; do
       if [ "$other_id" != "$id" ]; then
         other_name="$(get_agent_name "$other_id")"
-        other_content=$(head -200 "$SESSION_DIR/round-${prev}/${other_id}.md" 2>/dev/null || echo "(출력 없음)")
+        other_content=$(head -400 "$SESSION_DIR/round-${prev}/${other_id}.md" 2>/dev/null || echo "(출력 없음)")
         PREV_OUTPUTS+="### ${other_name}:\n${other_content}\n\n---\n\n"
       fi
     done
@@ -347,8 +469,12 @@ for round in $(seq "$START_DEBATE_ROUND" "$TOTAL_ROUNDS"); do
     prompt="${DEBATE_PROMPT_BASE}"
     prompt="${prompt//\{AGENT_NAME\}/$name}"
     prompt="${prompt//\{TOPIC\}/$TOPIC}"
+    prompt="${prompt//\{PROJECT_DIR\}/$PROJECT_DIR}"
     prompt="${prompt//\{PREV_ROUND\}/$prev}"
+    prompt="${prompt//\{CURR_ROUND\}/$round}"
+    prompt="${prompt//\{MY_PREV_OUTPUT\}/$MY_PREV_OUTPUT}"
     prompt="${prompt//\{PREV_OUTPUTS\}/$PREV_OUTPUTS}"
+    prompt="${prompt}${USER_FEEDBACK_SECTION}"
 
     run_agent "$id" "${name} [R${round}]" "$prompt" "$SESSION_DIR/round-${round}/${id}.md" &
   done

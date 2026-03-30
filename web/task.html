@@ -1,0 +1,864 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>작업 파이프라인 — Claude Multi-Agent</title>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<style>
+  :root {
+    --bg: #0f172a; --card: #1e293b; --border: #334155;
+    --text: #e2e8f0; --muted: #94a3b8; --accent: #06b6d4;
+    --purple: #8b5cf6; --green: #22c55e; --red: #ef4444;
+    --yellow: #fbbf24; --orange: #f97316; --teal: #14b8a6;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Inter', -apple-system, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+
+  .header { padding: 20px 24px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 12px; }
+  .header h1 { font-size: 20px; }
+  .header .icon { font-size: 28px; }
+  .header .nav-links { margin-left: auto; display: flex; gap: 8px; }
+  .header .nav-link { color: var(--muted); font-size: 13px; text-decoration: none; padding: 6px 12px; border: 1px solid var(--border); border-radius: 8px; transition: color 0.15s, border-color 0.15s; }
+  .header .nav-link:hover { color: var(--accent); border-color: var(--accent); }
+  .header .nav-link.active { color: var(--teal); border-color: var(--teal); }
+
+  .container { max-width: 1200px; margin: 0 auto; padding: 24px; }
+
+  /* Form */
+  .new-task { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 24px; margin-bottom: 28px; }
+  .new-task h2 { font-size: 14px; margin-bottom: 18px; color: var(--teal); font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
+
+  .form-task { margin-bottom: 16px; }
+  .form-task textarea {
+    width: 100%; padding: 13px 16px; background: var(--bg);
+    border: 1px solid var(--border); border-radius: 10px; color: var(--text);
+    font-size: 15px; resize: none; overflow: hidden; min-height: 52px;
+    line-height: 1.5; font-family: inherit; transition: border-color 0.15s;
+  }
+  .form-task textarea:focus { outline: none; border-color: var(--teal); }
+  .form-task textarea::placeholder { color: var(--muted); }
+
+  .form-row2 { display: grid; grid-template-columns: 1fr 120px 120px; gap: 12px; margin-bottom: 20px; align-items: end; }
+  .field-group { display: flex; flex-direction: column; gap: 6px; }
+  .field-group label { font-size: 12px; font-weight: 600; color: var(--muted); letter-spacing: 0.04em; text-transform: uppercase; }
+  .field-group select, .field-group input[type=number] {
+    padding: 10px 14px; background: var(--bg);
+    border: 1px solid var(--border); border-radius: 8px; color: var(--text);
+    font-size: 14px; width: 100%; cursor: pointer;
+  }
+  .field-group select { appearance: none; -webkit-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='7' viewBox='0 0 12 7'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%2394a3b8' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat; background-position: right 14px center; padding-right: 40px;
+  }
+  .field-group input[type=number]:focus, .field-group select:focus { outline: none; border-color: var(--teal); }
+
+  .form-actions { display: flex; justify-content: flex-end; }
+  .btn { padding: 12px 28px; border: none; border-radius: 10px; cursor: pointer; font-weight: 700; font-size: 15px; transition: opacity 0.15s; }
+  .btn:hover { opacity: 0.88; }
+  .btn:disabled { opacity: 0.35; cursor: not-allowed; }
+  .btn-teal { background: var(--teal); color: #000; }
+  .btn-purple { background: var(--purple); color: #fff; }
+  .btn-sm { padding: 8px 16px; font-size: 13px; border-radius: 8px; }
+  .btn-red { background: var(--red); color: #fff; }
+
+  .sessions-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+  .sessions-header h2 { font-size: 14px; color: var(--muted); font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
+  .sessions-list { display: grid; gap: 10px; margin-bottom: 0; }
+
+  /* Sessions list */
+  .sessions-section { margin-bottom: 24px; }
+
+  .session-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 16px 20px; cursor: pointer; transition: border-color 0.15s, background 0.15s; }
+  .session-card:hover { border-color: var(--teal); }
+  .session-card.active { border-color: var(--teal); background: rgba(20,184,166,0.06); }
+  .session-topic { font-size: 14px; font-weight: 600; margin-bottom: 8px; line-height: 1.4; }
+  .session-info { font-size: 12px; color: var(--muted); display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+
+  .badge { display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px; border-radius: 99px; font-size: 11px; font-weight: 600; }
+  .badge-running { background: rgba(6,182,212,0.15); color: var(--accent); }
+  .badge-completed { background: rgba(34,197,94,0.15); color: var(--green); }
+  .badge-error { background: rgba(239,68,68,0.15); color: var(--red); }
+  .badge-pending { background: rgba(148,163,184,0.15); color: var(--muted); }
+  .badge-generating { background: rgba(251,191,36,0.15); color: var(--yellow); }
+  .badge-rating { background: rgba(139,92,246,0.15); color: var(--purple); }
+  .badge-correcting { background: rgba(251,146,60,0.15); color: #fb923c; }
+  .badge-release { background: rgba(34,197,94,0.2); color: var(--green); border: 1px solid rgba(34,197,94,0.3); }
+  .badge-no-release { background: rgba(239,68,68,0.1); color: var(--red); border: 1px solid rgba(239,68,68,0.2); }
+
+  /* Session detail */
+  #sessionDetail { margin-top: 24px; }
+  .session-detail { background: var(--card); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
+  .detail-header { padding: 20px 24px; border-bottom: 1px solid var(--border); }
+  .detail-title { font-size: 18px; font-weight: 700; margin-bottom: 8px; }
+  .detail-meta { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  .score-ring { display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 99px; font-size: 13px; font-weight: 700; }
+  .score-ring.good { background: rgba(34,197,94,0.15); color: var(--green); }
+  .score-ring.ok { background: rgba(251,191,36,0.15); color: var(--yellow); }
+  .score-ring.bad { background: rgba(239,68,68,0.12); color: var(--red); }
+
+  /* Tabs */
+  .tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border); }
+  .tab { padding: 14px 22px; cursor: pointer; font-size: 14px; font-weight: 500; color: var(--muted); border-bottom: 2px solid transparent; transition: color 0.15s; white-space: nowrap; }
+  .tab:hover { color: var(--text); }
+  .tab.active { color: var(--teal); border-bottom-color: var(--teal); }
+
+  .tab-content { display: none; }
+  .tab-content.active { display: block; }
+
+  /* Pipeline tab */
+  .pipeline-view { padding: 24px; }
+  .phase-cols { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 24px; }
+  .phase-col { background: rgba(255,255,255,0.02); border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
+  .phase-label { font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-bottom: 14px; display: flex; align-items: center; gap: 6px; }
+  .phase-num { width: 20px; height: 20px; border-radius: 50%; background: var(--border); display: inline-flex; align-items: center; justify-content: center; font-size: 11px; color: var(--text); }
+  .phase-num.active { background: var(--teal); color: #000; }
+  .phase-num.done { background: var(--green); color: #000; }
+
+  .agent-card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; margin-bottom: 10px; }
+  .agent-card:last-child { margin-bottom: 0; }
+  .agent-name { font-size: 14px; font-weight: 600; margin-bottom: 4px; }
+  .agent-role { font-size: 12px; color: var(--muted); margin-bottom: 8px; }
+  .agent-status { display: flex; align-items: center; gap: 6px; }
+  .status-dot { width: 8px; height: 8px; border-radius: 50%; }
+  .status-dot.pending { background: var(--muted); }
+  .status-dot.running { background: var(--accent); animation: pulse 1.5s infinite; }
+  .status-dot.done { background: var(--green); }
+  .status-dot.error { background: var(--red); }
+
+  @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.4; } }
+
+  .pipeline-summary { background: rgba(20,184,166,0.06); border: 1px solid rgba(20,184,166,0.2); border-radius: 10px; padding: 16px; margin-bottom: 20px; font-size: 14px; line-height: 1.6; color: var(--muted); }
+
+  /* Phase outputs tab */
+  .outputs-view { padding: 24px; }
+  .phase-section { margin-bottom: 28px; }
+  .phase-section-title { font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--teal); margin-bottom: 14px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+  .agent-output { margin-bottom: 16px; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+  .agent-output-header { padding: 12px 16px; background: rgba(255,255,255,0.03); cursor: pointer; display: flex; align-items: center; justify-content: space-between; }
+  .agent-output-header:hover { background: rgba(255,255,255,0.05); }
+  .agent-output-name { font-size: 14px; font-weight: 600; }
+  .agent-output-body { padding: 16px; border-top: 1px solid var(--border); display: none; }
+  .agent-output-body.open { display: block; }
+  .agent-output-body .prose { font-size: 13px; line-height: 1.8; }
+  .agent-output-body .prose h1,.agent-output-body .prose h2,.agent-output-body .prose h3 { margin: 16px 0 8px; }
+  .agent-output-body .prose p { margin-bottom: 10px; }
+  .agent-output-body .prose ul,.agent-output-body .prose ol { padding-left: 20px; margin-bottom: 10px; }
+  .agent-output-body .prose code { background: rgba(255,255,255,0.07); padding: 2px 6px; border-radius: 4px; font-size: 12px; }
+  .agent-output-body .prose pre { background: rgba(0,0,0,0.3); padding: 14px; border-radius: 8px; overflow-x: auto; margin-bottom: 12px; }
+  .agent-output-body .prose pre code { background: none; padding: 0; }
+
+  /* Logs tab */
+  .logs-view { padding: 24px; }
+  .log-agent { margin-bottom: 16px; }
+  .log-agent-name { font-size: 12px; font-weight: 700; color: var(--muted); letter-spacing: 0.04em; text-transform: uppercase; margin-bottom: 6px; }
+  .log-body { font-family: monospace; font-size: 12px; background: rgba(0,0,0,0.3); border-radius: 8px; padding: 12px; max-height: 200px; overflow-y: auto; white-space: pre-wrap; word-break: break-all; color: #94a3b8; }
+
+  /* Report tab */
+  .report-view { padding: 24px; }
+  .score-board { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; margin-bottom: 24px; }
+  .score-card { background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: 12px; padding: 20px; text-align: center; }
+  .score-card .score-num { font-size: 36px; font-weight: 800; }
+  .score-card .score-label { font-size: 12px; color: var(--muted); margin-top: 4px; }
+  .score-card.release-yes { border-color: rgba(34,197,94,0.4); }
+  .score-card.release-no { border-color: rgba(239,68,68,0.3); }
+  .breakdown-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 20px; }
+  .breakdown-item { background: rgba(255,255,255,0.02); border: 1px solid var(--border); border-radius: 8px; padding: 12px; }
+  .breakdown-key { font-size: 11px; color: var(--muted); text-transform: capitalize; margin-bottom: 4px; }
+  .breakdown-val { font-size: 18px; font-weight: 700; }
+  .report-body { font-size: 14px; line-height: 1.8; }
+  .report-body h1,.report-body h2,.report-body h3 { margin: 20px 0 10px; color: var(--text); }
+  .report-body h1 { font-size: 20px; }
+  .report-body h2 { font-size: 16px; color: var(--teal); }
+  .report-body p { margin-bottom: 10px; }
+  .report-body ul,.report-body ol { padding-left: 20px; margin-bottom: 10px; }
+  .report-body li { margin-bottom: 4px; }
+  .report-body code { background: rgba(255,255,255,0.07); padding: 2px 6px; border-radius: 4px; font-size: 12px; }
+  .report-body pre { background: rgba(0,0,0,0.3); padding: 14px; border-radius: 8px; overflow-x: auto; margin-bottom: 12px; }
+  .report-body pre code { background: none; padding: 0; }
+
+  /* Actions */
+  .detail-actions { padding: 16px 24px; border-top: 1px solid var(--border); display: flex; gap: 10px; flex-wrap: wrap; }
+  .feedback-form { padding: 0 24px 20px; border-top: 1px solid var(--border); background: rgba(20,184,166,0.03); }
+  .feedback-form-header { font-size: 12px; font-weight: 600; color: var(--teal); letter-spacing: 0.04em; text-transform: uppercase; padding: 12px 0 8px; }
+  .feedback-input { display: flex; gap: 8px; align-items: flex-end; }
+  .feedback-input textarea {
+    flex: 1; padding: 10px 14px; background: var(--bg); border: 1px solid var(--border);
+    border-radius: 8px; color: var(--text); font-size: 13px; font-family: inherit;
+    resize: none; min-height: 44px; max-height: 120px; line-height: 1.5; transition: border-color 0.15s;
+  }
+  .feedback-input textarea:focus { outline: none; border-color: var(--teal); }
+  .feedback-input textarea::placeholder { color: var(--muted); }
+
+  .empty { color: var(--muted); font-size: 14px; text-align: center; padding: 40px 20px; }
+
+  /* Progress bar */
+  .progress-bar { height: 4px; background: var(--border); border-radius: 2px; margin: 12px 0; overflow: hidden; }
+  .progress-fill { height: 100%; border-radius: 2px; background: var(--teal); transition: width 0.5s; }
+
+  /* Tooltip */
+  .tip { font-size: 11px; color: var(--muted); margin-top: 4px; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <span class="icon">🔧</span>
+  <h1>작업 파이프라인</h1>
+  <div class="nav-links">
+    <a href="/" class="nav-link">🏴 토론</a>
+    <a href="/code-review" class="nav-link">🔍 코드 리뷰</a>
+    <a href="/task" class="nav-link active">🔧 작업 파이프라인</a>
+  </div>
+</div>
+
+<div class="container">
+  <!-- New Task Form -->
+  <div class="new-task">
+    <h2>새 작업 파이프라인</h2>
+    <div class="form-task">
+      <textarea id="taskInput" rows="2" placeholder="수행할 작업을 입력하세요. 예: PiPi Focus 앱 코드 리뷰 및 개선 / 레트로 게임 만들어줘 / 경쟁사 분석 보고서 작성" oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px'"></textarea>
+    </div>
+    <div class="form-row2">
+      <div class="field-group">
+        <label>프로젝트</label>
+        <select id="projectSelect"><option value="">전체 워크스페이스</option></select>
+      </div>
+      <div class="field-group">
+        <label>에이전트 수</label>
+        <input type="number" id="agentCountInput" value="5" min="2" max="12">
+      </div>
+      <div class="field-group" style="justify-content:flex-end;">
+        <label style="visibility:hidden">-</label>
+        <button class="btn btn-teal" id="startBtn" onclick="startTask()">파이프라인 시작 →</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Sessions List -->
+  <div class="sessions-section">
+    <div class="sessions-header">
+      <h2>작업 세션</h2>
+      <button class="btn btn-sm" style="background:none;color:var(--muted);border:1px solid var(--border);" onclick="loadSessions()">↻ 새로고침</button>
+    </div>
+    <div class="sessions-list" id="sessionsList">
+      <div class="empty">작업 세션이 없습니다</div>
+    </div>
+  </div>
+
+  <!-- Session Detail -->
+  <div id="sessionDetail" style="display:none;margin-top:0;">
+    <div class="session-detail">
+      <div class="detail-header">
+        <div class="detail-title" id="detailTitle">—</div>
+        <div class="detail-meta" id="detailMeta"></div>
+        <div class="progress-bar" id="progressBar" style="display:none;">
+          <div class="progress-fill" id="progressFill" style="width:0%"></div>
+        </div>
+      </div>
+
+      <div class="tabs">
+        <div class="tab active" onclick="switchTab('pipeline')">🔧 파이프라인</div>
+        <div class="tab" onclick="switchTab('outputs')">📄 단계별 결과</div>
+        <div class="tab" onclick="switchTab('logs')">📋 실시간 로그</div>
+        <div class="tab" onclick="switchTab('report')">🏆 최종 보고서</div>
+      </div>
+
+      <!-- Tab: Pipeline -->
+      <div class="tab-content active" id="tab-pipeline">
+        <div class="pipeline-view">
+          <div class="pipeline-summary" id="pipelineSummary" style="display:none;"></div>
+          <div class="phase-cols" id="phaseCols">
+            <div class="empty">파이프라인을 구성 중입니다...</div>
+          </div>
+          <div id="pipelineActions"></div>
+        </div>
+      </div>
+
+      <!-- Tab: Outputs -->
+      <div class="tab-content" id="tab-outputs">
+        <div class="outputs-view" id="outputsView">
+          <div class="empty">작업 결과가 없습니다</div>
+        </div>
+      </div>
+
+      <!-- Tab: Logs -->
+      <div class="tab-content" id="tab-logs">
+        <div class="logs-view" id="logsView">
+          <div class="empty">로그가 없습니다</div>
+        </div>
+      </div>
+
+      <!-- Tab: Report -->
+      <div class="tab-content" id="tab-report">
+        <div class="report-view" id="reportView">
+          <div class="empty">최종 보고서는 작업 완료 후 표시됩니다</div>
+        </div>
+      </div>
+
+      <!-- Actions -->
+      <div class="detail-actions" id="detailActions"></div>
+      <div class="feedback-form" id="feedbackForm" style="display:none;">
+        <div class="feedback-form-header">💬 에이전트 지시사항</div>
+        <div class="feedback-input">
+          <textarea id="feedbackInput" placeholder="다음 단계에 반영할 지시사항을 입력하세요..." onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendFeedback();}" oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px'"></textarea>
+          <button class="btn btn-sm btn-teal" onclick="sendFeedback()">전송</button>
+        </div>
+        <div class="tip">다음 단계 시작 전에 반영됩니다 · Shift+Enter 줄바꿈</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = '';
+let currentSessionId = null;
+let sseSource = null;
+let pollInterval = null;
+let currentSession = null;
+
+// ── Init ──
+async function init() {
+  await loadProjects();
+  await loadSessions();
+  connectSSE();
+}
+
+async function loadProjects() {
+  try {
+    const projects = await fetch(`${API}/api/projects`).then(r => r.json());
+    const sel = document.getElementById('projectSelect');
+    sel.innerHTML = '<option value="">전체 워크스페이스</option>';
+    for (const p of projects) {
+      const opt = document.createElement('option');
+      opt.value = p.path;
+      opt.textContent = p.name;
+      sel.appendChild(opt);
+    }
+  } catch {}
+}
+
+async function loadSessions() {
+  try {
+    const sessions = await fetch(`${API}/api/task/sessions`).then(r => r.json());
+    renderSessions(sessions);
+    // 현재 선택된 세션 자동 갱신
+    if (currentSessionId) {
+      const s = sessions.find(s => s.id === currentSessionId);
+      if (s && s.status !== currentSession?.status) selectSession(currentSessionId);
+    }
+  } catch {}
+}
+
+function renderSessions(sessions) {
+  const list = document.getElementById('sessionsList');
+  if (!sessions.length) {
+    list.innerHTML = '<div class="empty">작업 세션이 없습니다</div>';
+    return;
+  }
+  list.innerHTML = sessions.map(s => {
+    const badge = statusBadge(s.status);
+    const score = s.quality_score > 0 ? `<span>${s.quality_score}/10</span>` : '';
+    const ready = s.release_ready ? '<span class="badge badge-release">✅ 릴리즈 가능</span>' : '';
+    const ts = s.started_at ? new Date(s.started_at).toLocaleString('ko') : '';
+    return `<div class="session-card${s.id === currentSessionId ? ' active' : ''}" onclick="selectSession('${s.id}')">
+      <div class="session-meta">
+        <div class="session-topic">${escHtml(s.task || 'Unknown')}</div>
+        <div class="session-info">
+          ${badge} ${score} ${ready}
+          <span>${ts}</span>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function statusBadge(status) {
+  const map = {
+    'generating-pipeline': '<span class="badge badge-generating">⚙️ 파이프라인 생성</span>',
+    'pipeline-ready': '<span class="badge badge-pending">✋ 실행 대기</span>',
+    'running': '<span class="badge badge-running">▶ 실행 중</span>',
+    'rating': '<span class="badge badge-rating">⭐ 평가 중</span>',
+    'correcting': '<span class="badge badge-correcting">🔄 교정 중</span>',
+    'completed': '<span class="badge badge-completed">✓ 완료</span>',
+    'error': '<span class="badge badge-error">✗ 오류</span>',
+  };
+  return map[status] || `<span class="badge badge-pending">${status}</span>`;
+}
+
+// ── Session Selection ──
+async function selectSession(id) {
+  const isNew = currentSessionId !== id;
+  currentSessionId = id;
+  document.getElementById('sessionDetail').style.display = 'block';
+
+  // Mark active in list
+  document.querySelectorAll('.session-card').forEach(c => c.classList.toggle('active', c.onclick?.toString().includes(id)));
+
+  // SSE를 이 세션 ID로 재연결 (로그 실시간 수신)
+  connectSSE();
+
+  await refreshSession();
+  // 최초 선택 시에만 스크롤 이동 (갱신 시 스크롤 위치 유지)
+  if (isNew) document.getElementById('sessionDetail').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+async function refreshSession() {
+  if (!currentSessionId) return;
+  try {
+    const s = await fetch(`${API}/api/task/session/${currentSessionId}`).then(r => r.json());
+    currentSession = s;
+    renderSessionDetail(s);
+  } catch {}
+}
+
+function renderSessionDetail(s) {
+  document.getElementById('detailTitle').textContent = s.task || 'Unknown';
+
+  // Meta badges — 내용 변경 시에만 DOM 업데이트 (불필요한 리플로우 방지)
+  const scoreClass = s.quality_score >= 7.5 ? 'good' : s.quality_score >= 5 ? 'ok' : 'bad';
+  const meta = [
+    statusBadge(s.status),
+    s.quality_score > 0 ? `<span class="score-ring ${scoreClass}">⭐ ${s.quality_score}/10</span>` : '',
+    s.release_ready ? '<span class="badge badge-release">✅ 릴리즈 가능</span>' : '',
+    !s.release_ready && s.status === 'completed' ? '<span class="badge badge-no-release">⚠️ 추가 작업 필요</span>' : '',
+    s.current_phase > 0 ? `<span class="badge badge-pending">Phase ${s.current_phase}/${s.total_phases}</span>` : '',
+    s.status === 'correcting' && s.correction_cycle ? `<span class="badge badge-correcting">교정 ${s.correction_cycle}/${s.max_correction_cycles || 2}회</span>` : '',
+    s.status === 'completed' && s.correction_cycles_used > 0 ? `<span class="badge badge-pending">🔄 교정 ${s.correction_cycles_used}회</span>` : '',
+  ].filter(Boolean).join('');
+  const metaEl = document.getElementById('detailMeta');
+  if (metaEl.innerHTML !== meta) metaEl.innerHTML = meta;
+
+  // Progress bar
+  const pb = document.getElementById('progressBar');
+  const pf = document.getElementById('progressFill');
+  if (['running', 'correcting'].includes(s.status) && s.total_phases) {
+    pb.style.display = 'block';
+    const pct = Math.min(100, Math.round((s.current_phase / (s.total_phases + 1)) * 100));
+    pf.style.width = pct + '%';
+  } else {
+    pb.style.display = 'none';
+  }
+
+  // 현재 활성 탭만 렌더 (비활성 탭 렌더 시 스크롤 리셋 방지)
+  const activeTab = document.querySelector('.tab.active');
+  const tabName = activeTab ? activeTab.textContent.trim() : '';
+  if (tabName.includes('파이프라인')) renderPipelineTab(s);
+  else if (tabName.includes('단계별')) renderOutputsTab(s);
+  else if (tabName.includes('최종')) renderReportTab(s);
+  // 실시간 로그 탭은 SSE/loadLogs가 직접 관리 — 여기서 건드리지 않음
+
+  // Actions
+  renderActions(s);
+  // Feedback form
+  const showFeedback = ['running', 'pipeline-ready', 'correcting'].includes(s.status);
+  document.getElementById('feedbackForm').style.display = showFeedback ? 'block' : 'none';
+}
+
+function renderPipelineTab(s) {
+  const phaseCols = document.getElementById('phaseCols');
+  const summary = document.getElementById('pipelineSummary');
+  const actions = document.getElementById('pipelineActions');
+
+  if (s.pipeline_summary) {
+    summary.textContent = s.pipeline_summary;
+    summary.style.display = 'block';
+  }
+
+  const agents = s.agents || [];
+  const pd = s.pipeline_detail?.agents || [];
+  const totalPhases = s.total_phases || 3;
+
+  if (!agents.length) {
+    phaseCols.innerHTML = '<div class="empty">파이프라인을 구성 중입니다...</div>';
+    return;
+  }
+
+  const phaseNames = ['조사·계획', '구현·실행', '검증·평가'];
+  const isCorrecting = s.status === 'correcting';
+
+  // 구조가 없으면 최초 전체 렌더
+  if (!phaseCols.querySelector('.phase-col')) {
+    let html = '';
+    for (let p = 1; p <= totalPhases; p++) {
+      const phaseAgents = agents.filter(a => a.exec_phase === p);
+      const isDone = isCorrecting ? (p === 1) : (s.current_phase > p || s.status === 'completed');
+      const isActive = isCorrecting ? (p === s.current_phase) : (s.current_phase === p);
+      const numClass = isDone ? 'done' : isActive ? 'active' : '';
+      const phaseExtra = isCorrecting && p > 1 ? ' <span style="font-size:10px;color:#fb923c">🔄교정</span>' : '';
+      html += `<div class="phase-col" data-phase="${p}">
+        <div class="phase-label">
+          <span class="phase-num ${numClass}" data-phase-num="${p}">${p}</span>
+          ${phaseNames[p-1] || `Phase ${p}`}${phaseExtra}
+        </div>`;
+      for (const a of phaseAgents) {
+        const detail = pd.find(x => x.id === a.id);
+        html += `<div class="agent-card" data-agent-id="${a.id}">
+          <div class="agent-name">${escHtml(a.name)}</div>
+          <div class="agent-role">${escHtml(a.role || detail?.focus || '')}</div>
+          <div class="agent-status">
+            <span class="status-dot ${a.status || 'pending'}"></span>
+            <span class="status-text" style="font-size:12px;color:var(--muted)">${statusText(a.status)}</span>
+          </div>
+        </div>`;
+      }
+      html += '</div>';
+    }
+    phaseCols.innerHTML = html;
+  } else {
+    // 증분 업데이트: 에이전트 상태 도트만 갱신 (스크롤/DOM 유지)
+    for (const a of agents) {
+      const card = phaseCols.querySelector(`[data-agent-id="${a.id}"]`);
+      if (!card) continue;
+      const dot = card.querySelector('.status-dot');
+      const txt = card.querySelector('.status-text');
+      if (dot) dot.className = `status-dot ${a.status || 'pending'}`;
+      if (txt) txt.textContent = statusText(a.status);
+    }
+    // phase-num 클래스 갱신
+    for (let p = 1; p <= totalPhases; p++) {
+      const num = phaseCols.querySelector(`[data-phase-num="${p}"]`);
+      if (!num) continue;
+      const isDone = isCorrecting ? (p === 1) : (s.current_phase > p || s.status === 'completed');
+      const isActive = isCorrecting ? (p === s.current_phase) : (s.current_phase === p);
+      num.className = `phase-num ${isDone ? 'done' : isActive ? 'active' : ''}`;
+    }
+  }
+
+  // Pipeline-ready → Run 버튼
+  if (s.status === 'pipeline-ready') {
+    if (!actions.querySelector('button')) {
+      actions.innerHTML = `<div style="padding:0 0 16px;display:flex;justify-content:flex-end;">
+        <button class="btn btn-teal" onclick="runPipeline()">▶ 파이프라인 실행 시작</button>
+      </div>`;
+    }
+  } else {
+    actions.innerHTML = '';
+  }
+}
+
+function renderOutputsTab(s) {
+  const view = document.getElementById('outputsView');
+  const agents = s.agents || [];
+  const totalPhases = s.total_phases || 3;
+  const files = s.files || {};
+  const phaseNames = ['조사·계획', '구현·실행', '검증·평가'];
+  let hasAny = false;
+
+  for (let p = 1; p <= totalPhases; p++) {
+    const phaseAgents = agents.filter(a => a.exec_phase === p);
+    for (const a of phaseAgents) {
+      const key = `phase-${p}/${a.id}.md`;
+      const content = files[key];
+      if (!content || content === '*(에이전트 실행 실패)*') continue;
+      hasAny = true;
+
+      // 이미 렌더된 카드는 건드리지 않음 (접기/펼치기 상태 보존)
+      if (view.querySelector(`[data-agent-id="${a.id}"]`)) continue;
+
+      // Phase 섹션 없으면 생성
+      let section = view.querySelector(`[data-phase-section="${p}"]`);
+      if (!section) {
+        const empty = view.querySelector('.empty');
+        if (empty) empty.remove();
+        section = document.createElement('div');
+        section.className = 'phase-section';
+        section.dataset.phaseSection = p;
+        section.innerHTML = `<div class="phase-section-title">Phase ${p} — ${phaseNames[p-1] || ''}</div>`;
+        view.appendChild(section);
+      }
+
+      // 에이전트 카드 추가
+      const card = document.createElement('div');
+      card.className = 'agent-output';
+      card.dataset.agentId = a.id;
+      const preview = content.slice(0, 80).replace(/\n/g, ' ') + '…';
+      card.innerHTML = `<div class="agent-output-header" onclick="toggleOutput(this)">
+          <span class="agent-output-name">${escHtml(a.name)}</span>
+          <span style="font-size:12px;color:var(--muted);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin:0 8px">${escHtml(preview)}</span>
+          <span style="font-size:12px;color:var(--teal);flex-shrink:0">▼ 펼치기</span>
+        </div>
+        <div class="agent-output-body">
+          <div class="prose">${marked.parse(content)}</div>
+        </div>`;
+      section.appendChild(card);
+    }
+  }
+
+  if (!hasAny && !view.querySelector('.agent-output')) {
+    if (!view.querySelector('.empty')) {
+      view.innerHTML = '<div class="empty">단계별 작업 결과가 없습니다</div>';
+    }
+  }
+}
+
+function renderReportTab(s) {
+  const view = document.getElementById('reportView');
+  const files = s.files || {};
+  const scoreJson = files['rating/score.json'];
+  const reportMd = files['rating/report.md'];
+  const conclusionMd = files['conclusion.md'];
+
+  if (s.status === 'completed' && (conclusionMd || reportMd)) {
+    let score = null;
+    try { score = JSON.parse(scoreJson); } catch {}
+
+    let html = '';
+
+    if (score) {
+      const sc = score.overall_score || 0;
+      const ready = score.release_ready;
+      const scoreClass = sc >= 7.5 ? 'good' : sc >= 5 ? 'ok' : 'bad';
+      html += `<div class="score-board">
+        <div class="score-card ${ready ? 'release-yes' : 'release-no'}">
+          <div class="score-num ${scoreClass}" style="color:${sc>=7.5?'var(--green)':sc>=5?'var(--yellow)':'var(--red)'}">${sc}</div>
+          <div class="score-label">종합 점수 / 10</div>
+        </div>
+        <div class="score-card ${ready ? 'release-yes' : 'release-no'}">
+          <div class="score-num" style="font-size:28px;">${ready ? '✅' : '⚠️'}</div>
+          <div class="score-label">${ready ? '릴리즈 가능' : '추가 작업 필요'}</div>
+          <div class="tip">기준: ${s.release_threshold || 7.5}/10</div>
+        </div>
+      </div>`;
+
+      const b = score.breakdown || {};
+      if (Object.keys(b).length) {
+        html += '<div class="breakdown-grid">';
+        for (const [k, v] of Object.entries(b)) {
+          const c = v >= 8 ? 'var(--green)' : v >= 6 ? 'var(--yellow)' : 'var(--red)';
+          html += `<div class="breakdown-item">
+            <div class="breakdown-key">${k}</div>
+            <div class="breakdown-val" style="color:${c}">${v}<span style="font-size:14px;color:var(--muted)">/10</span></div>
+          </div>`;
+        }
+        html += '</div>';
+      }
+    }
+
+    const mainContent = conclusionMd || reportMd || '';
+    html += `<div class="report-body">${marked.parse(mainContent)}</div>`;
+    view.innerHTML = html;
+  } else if (s.status === 'rating') {
+    view.innerHTML = '<div class="empty">⭐ 품질 평가 중...</div>';
+  } else if (s.status === 'correcting') {
+    const cycle = s.correction_cycle || 1;
+    const max = s.max_correction_cycles || 2;
+    view.innerHTML = `<div class="empty">🔄 교정 사이클 ${cycle}/${max} — QA 피드백 반영 중...</div>`;
+  } else {
+    view.innerHTML = '<div class="empty">최종 보고서는 작업 완료 후 표시됩니다</div>';
+  }
+}
+
+function renderActions(s) {
+  const div = document.getElementById('detailActions');
+  const actions = [];
+
+  if (s.status === 'completed') {
+    actions.push(`<button class="btn btn-sm btn-purple" onclick="continueTask()">+ 추가 사이클</button>`);
+  }
+  if (['running', 'rating', 'correcting', 'generating-pipeline'].includes(s.status)) {
+    actions.push(`<button class="btn btn-sm" style="background:var(--border);color:var(--text);" onclick="refreshSession()">↻ 새로고침</button>`);
+  }
+  actions.push(`<button class="btn btn-sm btn-red" onclick="deleteSession()">🗑 삭제</button>`);
+
+  div.innerHTML = actions.join('');
+}
+
+// ── Task Actions ──
+async function startTask() {
+  const task = document.getElementById('taskInput').value.trim();
+  if (!task) { alert('작업을 입력해 주세요'); return; }
+
+  const projectDir = document.getElementById('projectSelect').value;
+  const agentCount = parseInt(document.getElementById('agentCountInput').value) || 5;
+  const btn = document.getElementById('startBtn');
+  btn.disabled = true;
+  btn.textContent = '파이프라인 구성 중...';
+
+  try {
+    const res = await fetch(`${API}/api/task/start`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ task, projectDir, agentCount }),
+    });
+    const data = await res.json();
+    if (data.error) { alert(data.error); return; }
+    document.getElementById('taskInput').value = '';
+    await loadSessions();
+    selectSession(data.sessionId);
+  } catch(e) { alert(e.message); } finally {
+    btn.disabled = false;
+    btn.textContent = '파이프라인 시작 →';
+  }
+}
+
+async function runPipeline() {
+  if (!currentSessionId) return;
+  try {
+    const res = await fetch(`${API}/api/task/run`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionId: currentSessionId }),
+    });
+    const data = await res.json();
+    if (data.error) { alert(data.error); return; }
+    await refreshSession();
+  } catch(e) { alert(e.message); }
+}
+
+async function continueTask() {
+  if (!currentSessionId) return;
+  const cycles = parseInt(prompt('추가 사이클 수 (1~5):', '1')) || 1;
+  try {
+    const res = await fetch(`${API}/api/task/continue`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionId: currentSessionId, cycles }),
+    });
+    const data = await res.json();
+    if (data.error) { alert(data.error); return; }
+    await refreshSession();
+  } catch(e) { alert(e.message); }
+}
+
+async function deleteSession() {
+  if (!currentSessionId || !confirm('이 세션을 삭제하시겠습니까?')) return;
+  try {
+    await fetch(`${API}/api/task/session/${currentSessionId}`, { method: 'DELETE' });
+    currentSessionId = null;
+    currentSession = null;
+    document.getElementById('sessionDetail').style.display = 'none';
+    await loadSessions();
+  } catch(e) { alert(e.message); }
+}
+
+async function sendFeedback() {
+  const input = document.getElementById('feedbackInput');
+  const text = input.value.trim();
+  if (!text || !currentSessionId) return;
+  try {
+    await fetch(`${API}/api/task/session/${currentSessionId}/feedback`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+    });
+    input.value = '';
+    input.style.height = 'auto';
+    input.placeholder = '✅ 등록됨 — 다음 단계에 반영됩니다';
+    setTimeout(() => input.placeholder = '다음 단계에 반영할 지시사항을 입력하세요...', 3000);
+  } catch(e) { alert(e.message); }
+}
+
+// ── Logs ──
+async function loadLogs() {
+  if (!currentSessionId) return;
+  try {
+    const logs = await fetch(`${API}/api/task/logs?sessionId=${currentSessionId}`).then(r => r.json());
+    renderLogs(logs);
+  } catch {}
+}
+
+function renderLogs(logs) {
+  const view = document.getElementById('logsView');
+  const entries = Object.entries(logs);
+  if (!entries.length) {
+    if (!view.querySelector('.log-agent')) {
+      view.innerHTML = '<div class="empty">로그가 없습니다</div>';
+    }
+    return;
+  }
+  // 빈 상태 메시지 제거
+  const empty = view.querySelector('.empty');
+  if (empty) empty.remove();
+
+  for (const [key, content] of entries) {
+    let box = view.querySelector(`[data-log-key="${CSS.escape(key)}"]`);
+    if (!box) {
+      box = document.createElement('div');
+      box.className = 'log-agent';
+      box.dataset.logKey = key;
+      box.innerHTML = `<div class="log-agent-name">${escHtml(key.toUpperCase())}</div><div class="log-body"></div>`;
+      view.appendChild(box);
+    }
+    const body = box.querySelector('.log-body');
+    if (body && body.textContent !== content) {
+      // 스크롤이 하단에 있으면 업데이트 후 하단 유지, 아니면 현재 위치 보존
+      const atBottom = body.scrollHeight - body.scrollTop <= body.clientHeight + 30;
+      body.textContent = content;
+      if (atBottom) body.scrollTop = body.scrollHeight;
+    }
+  }
+}
+
+// ── SSE ──
+function connectSSE() {
+  if (sseSource) sseSource.close();
+  const url = currentSessionId
+    ? `${API}/api/task/logs/stream?sessionId=${currentSessionId}`
+    : `${API}/api/task/logs/stream`;
+  sseSource = new EventSource(url);
+
+  sseSource.onmessage = (e) => {
+    try {
+      const logs = JSON.parse(e.data);
+      // 빈 데이터는 무시 (기존 렌더링 덮어쓰기 방지)
+      if (Object.keys(logs).length === 0) return;
+      if (document.getElementById('tab-logs').classList.contains('active')) renderLogs(logs);
+    } catch {}
+  };
+  sseSource.addEventListener('session', (e) => {
+    try {
+      const s = JSON.parse(e.data);
+      if (s.id === currentSessionId) { currentSession = s; renderSessionDetail(s); }
+    } catch {}
+  });
+  sseSource.addEventListener('sessions', (e) => {
+    try { renderSessions(JSON.parse(e.data)); } catch {}
+  });
+  sseSource.onerror = () => setTimeout(connectSSE, 5000);
+}
+
+// ── Tabs ──
+function switchTab(name) {
+  document.querySelectorAll('.tab').forEach((t, i) => {
+    const names = ['pipeline', 'outputs', 'logs', 'report'];
+    t.classList.toggle('active', names[i] === name);
+  });
+  document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+  document.getElementById(`tab-${name}`).classList.add('active');
+  if (name === 'logs') loadLogs();
+  if (name === 'outputs' || name === 'report') refreshSession();
+}
+
+// ── Helpers ──
+function toggleOutput(header) {
+  const body = header.nextElementSibling;
+  body.classList.toggle('open');
+  header.querySelector('span:last-child').textContent = body.classList.contains('open') ? '▲' : '▼';
+}
+
+function statusText(s) {
+  return { pending: '대기', running: '실행 중', done: '완료', error: '오류' }[s] || s || '대기';
+}
+
+function escHtml(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// SSE 재연결 시 세션 변경 반영
+function reconnectSSE() {
+  if (sseSource) sseSource.close();
+  connectSSE();
+}
+
+// Poll fallback (SSE 실패 시)
+setInterval(() => {
+  if (currentSessionId && currentSession && ['running','rating','correcting','generating-pipeline'].includes(currentSession.status)) {
+    refreshSession();
+  }
+}, 8000);
+
+init();
+</script>
+</body>
+</html>

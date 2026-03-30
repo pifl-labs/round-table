@@ -82,6 +82,217 @@ if [ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]; then
 fi
 [ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ] && { echo "❌ CLAUDE_CODE_OAUTH_TOKEN 미설정" >&2; exit 1; }
 
+# Codex CLI 탐지 (선택 — codex-cli 프로파일 사용 시 필요)
+CODEX_BIN="${CODEX_BIN:-$(which codex 2>/dev/null || true)}"
+for candidate in "/opt/homebrew/bin/codex" "$HOME/.local/bin/codex" "/usr/local/bin/codex"; do
+  [ -x "$candidate" ] && { CODEX_BIN="$candidate"; break; }
+done
+
+# Gemini CLI 탐지 (선택 — gemini-cli 프로파일 사용 시 필요)
+GEMINI_BIN="${GEMINI_BIN:-$(which gemini 2>/dev/null || true)}"
+for candidate in "/opt/homebrew/bin/gemini" "$HOME/.local/bin/gemini" "/usr/local/bin/gemini"; do
+  [ -x "$candidate" ] && { GEMINI_BIN="$candidate"; break; }
+done
+
+# ============================================================
+# 멀티 AI 프로바이더 설정
+# ============================================================
+AI_PROFILE="${AI_PROFILE:-claude}"
+OPENAI_API_KEY="${OPENAI_API_KEY:-}"
+GEMINI_API_KEY="${GEMINI_API_KEY:-}"
+# 세션 meta.json에 ai_profile이 있으면 우선 적용
+_META_AI_PROFILE=$(python3 -c "
+import json
+try:
+  d = json.load(open('$SESSION_DIR/meta.json'))
+  print(d.get('ai_profile',''))
+except: print('')
+" 2>/dev/null)
+[ -n "$_META_AI_PROFILE" ] && AI_PROFILE="$_META_AI_PROFILE"
+
+# ============================================================
+# 멀티 AI 래퍼 함수들
+# ============================================================
+
+# call_openai PROMPT LOG_FILE MODEL
+call_openai() {
+  local prompt="$1" log="$2" model="${3:-gpt-4o-mini}"
+  if [ -z "$OPENAI_API_KEY" ]; then
+    echo "(OpenAI API 키 없음 — .env에 OPENAI_API_KEY 추가 필요)" >> "$log"
+    echo ""
+    return 1
+  fi
+  local payload; payload=$(python3 -c "
+import json, sys
+prompt = sys.stdin.read()
+print(json.dumps({'model': '$model', 'messages': [{'role': 'user', 'content': prompt}], 'max_tokens': 4096}))" <<< "$prompt")
+  local response; response=$(curl -sf "https://api.openai.com/v1/chat/completions" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: Bearer $OPENAI_API_KEY" \
+    -d "$payload" 2>>"$log")
+  if [ -z "$response" ]; then
+    echo "(OpenAI API 호출 실패)" >> "$log"
+    echo ""; return 1
+  fi
+  python3 -c "import json,sys; d=json.load(sys.stdin); print(d['choices'][0]['message']['content'])" <<< "$response" 2>>"$log"
+}
+
+# call_gemini PROMPT LOG_FILE MODEL
+call_gemini() {
+  local prompt="$1" log="$2" model="${3:-gemini-2.0-flash}"
+  if [ -z "$GEMINI_API_KEY" ]; then
+    echo "(Gemini API 키 없음 — aistudio.google.com에서 무료 발급 후 .env에 GEMINI_API_KEY 추가)" >> "$log"
+    echo ""
+    return 1
+  fi
+  local payload; payload=$(python3 -c "
+import json, sys
+prompt = sys.stdin.read()
+print(json.dumps({'contents': [{'parts': [{'text': prompt}]}], 'generationConfig': {'maxOutputTokens': 4096}}))" <<< "$prompt")
+  local response; response=$(curl -sf \
+    "https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}" \
+    -H "Content-Type: application/json" \
+    -d "$payload" 2>>"$log")
+  if [ -z "$response" ]; then
+    echo "(Gemini API 호출 실패)" >> "$log"
+    echo ""; return 1
+  fi
+  python3 -c "import json,sys; d=json.load(sys.stdin); print(d['candidates'][0]['content']['parts'][0]['text'])" <<< "$response" 2>>"$log"
+}
+
+# call_gemini_cli PROMPT LOG_FILE [DIR]
+# Gemini CLI — Google OAuth 인증 (~/.gemini/oauth_creds.json), API 키 불필요
+# 파일 직접 읽기 가능 (REST API와 달리 collect_code_context 불필요)
+call_gemini_cli() {
+  local prompt="$1" log="$2" dir="${3:-$PROJECT_DIR}"
+  if [ -z "${GEMINI_BIN:-}" ] || [ ! -x "${GEMINI_BIN}" ]; then
+    echo "(Gemini CLI 없음 — /opt/homebrew/bin/gemini 경로 확인)" >> "$log"
+    return 1
+  fi
+  local tmp; tmp=$(mktemp)
+  # -p: 비대화형 단일 응답 모드 (claude -p 와 동일 역할)
+  # OAuth 자격증명은 ~/.gemini/oauth_creds.json 에서 자동 로드됨
+  if (cd "$dir" && "$GEMINI_BIN" -p "$prompt") > "$tmp" 2>> "$log"; then
+    cat "$tmp"
+    rm -f "$tmp"
+    return 0
+  else
+    echo "(Gemini CLI 호출 실패)" >> "$log"
+    rm -f "$tmp"
+    return 1
+  fi
+}
+
+# call_codex_cli PROMPT LOG_FILE [DIR]
+# Codex CLI — ChatGPT 계정 OAuth 인증 (~/.codex/auth.json), API 키 불필요
+# 파일 직접 읽기 가능 (collect_code_context 불필요)
+call_codex_cli() {
+  local prompt="$1" log="$2" dir="${3:-$PROJECT_DIR}"
+  if [ -z "${CODEX_BIN:-}" ] || [ ! -x "${CODEX_BIN}" ]; then
+    echo "(Codex CLI 없음 — /opt/homebrew/bin/codex 경로 확인)" >> "$log"
+    return 1
+  fi
+  local tmp; tmp=$(mktemp)
+  # exec --full-auto: 확인 없이 자동 실행
+  # --sandbox read-only: 파일 읽기만 허용 (쓰기 불가)
+  # --output-last-message: 최종 응답을 파일로 저장
+  # -C: 작업 디렉토리 (프로젝트 경로)
+  # OAuth 자격증명은 ~/.codex/auth.json 에서 자동 로드됨
+  if "$CODEX_BIN" exec --full-auto --sandbox read-only \
+      -C "$dir" \
+      --output-last-message "$tmp" \
+      "$prompt" >> "$log" 2>&1; then
+    cat "$tmp"
+    rm -f "$tmp"
+    return 0
+  else
+    echo "(Codex CLI 호출 실패)" >> "$log"
+    rm -f "$tmp"
+    return 1
+  fi
+}
+
+# collect_code_context: 비-Claude 에이전트에게 줄 코드 컨텍스트 수집
+# 결과를 $SESSION_DIR/code-context.md 에 캐싱
+collect_code_context() {
+  local ctx_file="$SESSION_DIR/code-context.md"
+  [ -f "$ctx_file" ] && { cat "$ctx_file"; return; }
+
+  local ctx="# 프로젝트 코드 컨텍스트\n프로젝트: $PROJECT_DIR\n\n"
+  # 의존성 파일 우선
+  for dep in pubspec.yaml package.json go.mod pyproject.toml Cargo.toml requirements.txt; do
+    [ -f "$PROJECT_DIR/$dep" ] && ctx+="=== $dep ===\n$(cat "$PROJECT_DIR/$dep" 2>/dev/null | head -100)\n\n"
+  done
+  # README
+  for readme in README.md README.txt readme.md; do
+    [ -f "$PROJECT_DIR/$readme" ] && ctx+="=== $readme ===\n$(head -80 "$PROJECT_DIR/$readme" 2>/dev/null)\n\n" && break
+  done
+  # 주요 소스 파일 (각 최대 200줄, 전체 20파일 이내)
+  local file_count=0
+  while IFS= read -r f; do
+    [ "$file_count" -ge 20 ] && break
+    local size; size=$(wc -c < "$f" 2>/dev/null || echo 99999)
+    [ "$size" -gt 30000 ] && continue  # 30KB 이상 스킵
+    ctx+="=== ${f#$PROJECT_DIR/} ===\n$(head -200 "$f" 2>/dev/null)\n\n"
+    file_count=$((file_count + 1))
+  done < <(find "$PROJECT_DIR" -type f \( -name "*.dart" -o -name "*.kt" -o -name "*.swift" -o -name "*.ts" -o -name "*.tsx" -o -name "*.py" -o -name "*.go" \) \
+    ! -path "*/build/*" ! -path "*/.dart_tool/*" ! -path "*/node_modules/*" ! -path "*/.pub-cache/*" \
+    | sort | head -30)
+
+  printf '%b' "$ctx" > "$ctx_file"
+  cat "$ctx_file"
+}
+
+# resolve_agent_provider: 에이전트 ID에 대한 AI 프로바이더 결정
+# 출력: "claude" | "gemini" | "gemini-cli" | "gpt4o-mini" | "gpt4o" | "codex-cli"
+resolve_agent_provider() {
+  local agent_id="$1"
+  # 에이전트 수준 오버라이드가 있으면 사용
+  local override; override=$(python3 -c "
+import json
+try:
+  d = json.load(open('$SESSION_DIR/agents.json'))
+  for a in d.get('agents', []):
+    if a['id'] == '$agent_id':
+      print(a.get('provider', ''))
+      break
+except: print('')
+" 2>/dev/null)
+  [ -n "$override" ] && { echo "$override"; return; }
+
+  # 첫 에이전트 ID 조회 (프로파일별 Claude 유지 대상)
+  local first_agent; first_agent=$(python3 -c "
+import json
+try:
+  d = json.load(open('$SESSION_DIR/agents.json'))
+  agents = d.get('agents', [])
+  print(agents[0]['id'] if agents else '')
+except: print('')
+" 2>/dev/null)
+
+  # 프로파일별 기본 배정
+  case "$AI_PROFILE" in
+    "mixed")
+      # 첫 에이전트는 Claude (코드 탐색용), 나머지는 Gemini REST API
+      [ "$agent_id" = "$first_agent" ] && echo "claude" || echo "gemini"
+      ;;
+    "gemini-primary")
+      [ "$agent_id" = "$first_agent" ] && echo "claude" || echo "gemini"
+      ;;
+    "gemini-cli")
+      # 첫 에이전트는 Claude, 나머지는 Gemini CLI (파일 직접 읽기)
+      [ "$agent_id" = "$first_agent" ] && echo "claude" || echo "gemini-cli"
+      ;;
+    "codex-cli")
+      # 첫 에이전트는 Claude, 나머지는 Codex CLI (파일 직접 읽기)
+      [ "$agent_id" = "$first_agent" ] && echo "claude" || echo "codex-cli"
+      ;;
+    *)  # "claude" 기본값
+      echo "claude"
+      ;;
+  esac
+}
+
 # ============================================================
 # 유틸리티
 # ============================================================
@@ -152,18 +363,99 @@ run_cr_agent() {
   local id="$1" round="$2" prompt="$3"
   local output="$SESSION_DIR/round-${round}/${id}.md"
   local log="$LOG_DIR/${LOG_PREFIX}-${id}.log"
+  local provider; provider=$(resolve_agent_provider "$id")
 
-  echo "[$(date +%H:%M:%S)] [R${round}] ${id} 시작..." >> "$log"
+  echo "[$(date +%H:%M:%S)] [R${round}] ${id} 시작 (${provider})..." >> "$log"
   update_agent_status "$id" "running"
 
-  if (cd "$PROJECT_DIR" && CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN" \
-      "$CLAUDE_BIN" -p "$prompt") > "$output" 2>> "$log"; then
+  local result="" ok=false
+
+  case "$provider" in
+    "claude")
+      local tmp; tmp=$(mktemp)
+      if (cd "$PROJECT_DIR" && CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN" \
+          "$CLAUDE_BIN" --output-format json -p "$prompt") > "$tmp" 2>> "$log"; then
+        result=$(python3 -c "
+import json, sys
+data = sys.stdin.read().strip()
+try:
+    obj = json.loads(data)
+    if 'result' in obj: print(obj['result']); exit(0)
+except: pass
+for line in data.split('\n'):
+    line = line.strip()
+    if not line: continue
+    try:
+        obj = json.loads(line)
+        if obj.get('type') == 'result' and 'result' in obj: print(obj['result']); exit(0)
+    except: pass
+print(data)
+" < "$tmp")
+        ok=true
+      fi
+      rm -f "$tmp"
+      ;;
+
+    "gemini" | "gemini-flash" | "gemini-pro")
+      local model="gemini-2.0-flash"
+      [ "$provider" = "gemini-pro" ] && model="gemini-1.5-pro"
+      # 코드 컨텍스트 주입 (비-Claude는 파일 읽기 불가)
+      local ctx; ctx=$(collect_code_context)
+      local full_prompt="아래는 분석할 코드베이스입니다. 한국어로 응답하세요.
+
+${ctx}
+
+---
+## 리뷰 지시사항
+${prompt}"
+      result=$(call_gemini "$full_prompt" "$log" "$model")
+      [ -n "$result" ] && ok=true
+      ;;
+
+    "gpt4o-mini" | "gpt4o" | "openai")
+      local model="gpt-4o-mini"
+      [ "$provider" = "gpt4o" ] && model="gpt-4o"
+      local ctx; ctx=$(collect_code_context)
+      local full_prompt="아래는 분석할 코드베이스입니다. 한국어로 응답하세요.
+
+${ctx}
+
+---
+## 리뷰 지시사항
+${prompt}"
+      result=$(call_openai "$full_prompt" "$log" "$model")
+      [ -n "$result" ] && ok=true
+      ;;
+
+    "gemini-cli")
+      # Gemini CLI — 프로젝트 디렉토리에서 직접 파일 읽기 가능
+      result=$(call_gemini_cli "$prompt" "$log" "$PROJECT_DIR")
+      [ -n "$result" ] && ok=true
+      ;;
+
+    "codex-cli")
+      # Codex CLI — 프로젝트 디렉토리에서 직접 파일 읽기 가능
+      result=$(call_codex_cli "$prompt" "$log" "$PROJECT_DIR")
+      [ -n "$result" ] && ok=true
+      ;;
+
+    *)
+      echo "[$(date +%H:%M:%S)] [R${round}] ${id} 알 수 없는 프로바이더: ${provider}" >> "$log"
+      ;;
+  esac
+
+  if [ "$ok" = true ] && [ -n "$result" ]; then
+    echo "$result" > "$output"
+    # provider 태그 추가 (UI에서 표시용)
+    echo "" >> "$output"
+    echo "---" >> "$output"
+    echo "*분석 엔진: ${provider}*" >> "$output"
     update_agent_status "$id" "done"
     echo "[$(date +%H:%M:%S)] [R${round}] ${id} 완료 ✓" >> "$log"
   else
     update_agent_status "$id" "error"
     echo "[$(date +%H:%M:%S)] [R${round}] ${id} 실패" >> "$log"
-    echo "*(에이전트 분석 실패)*" >> "$output"
+    echo "*(에이전트 분석 실패 — provider: ${provider})*" > "$output"
   fi
 }
 
@@ -181,7 +473,8 @@ if [ "$MODE" = "generate" ]; then
   CONTEXT_LINE=""
   [ -n "$CONTEXT" ] && CONTEXT_LINE="추가 컨텍스트: ${CONTEXT}"
 
-  AGENT_GEN_PROMPT="당신은 소프트웨어 아키텍처 전문가입니다. 한국어로 응답하세요.
+  AGENT_GEN_PROMPT=$(cat <<PROMPT_EOF
+당신은 소프트웨어 아키텍처 전문가입니다. 한국어로 응답하세요.
 
 다음 프로젝트를 실제 분석하고 코드 리뷰에 최적화된 ${AGENT_COUNT}명의 전문 에이전트를 생성하세요.
 
@@ -203,22 +496,30 @@ ${CONTEXT_LINE}
 - 다른 에이전트와 관점이 달라야 함 (중복 역할 금지)
 - 프로젝트 언어/프레임워크에 특화되어야 함
 
+페르소나 작성 원칙 (중요):
+- 목표는 '문제 찾기'가 아닌 '코드 품질 8점 이상으로 향상'입니다
+- 페르소나는 건설적이고 실용적이어야 합니다 — 문제를 발견했으면 반드시 구체적 해결책을 제시하는 사람
+- '엄격한', '집착하는' 같은 표현 대신 '실용적인', '해결 지향적인' 같은 표현 사용
+- 코드의 좋은 점도 인정하고, 개선 가능한 부분에 집중하는 균형 잡힌 전문가로 설정
+
 반드시 다음 JSON 형식으로 응답하세요 (마크다운 코드블록 사용 가능):
 {
-  \"language\": \"Flutter/Dart\",
-  \"framework\": \"Flutter 3.x + Riverpod\",
-  \"detected_issues\": [\"상태관리 불일치\", \"테스트 부재\"],
-  \"agents\": [
+  "language": "Flutter/Dart",
+  "framework": "Flutter 3.x + Riverpod",
+  "detected_issues": ["상태관리 불일치", "테스트 부재"],
+  "agents": [
     {
-      \"id\": \"arch_reviewer\",
-      \"name\": \"아키텍처 전문가\",
-      \"role\": \"클린 아키텍처 및 SOLID 원칙 검토\",
-      \"expertise\": [\"Clean Architecture\", \"SOLID 원칙\", \"레이어 분리\", \"DI\"],
-      \"focus\": \"도메인/프레젠테이션 레이어 분리, 의존성 방향, 관심사 분리\",
-      \"persona\": \"10년 경력의 Flutter 아키텍처 전문가로, 코드의 구조적 건강성을 최우선으로 판단\"
+      "id": "arch_reviewer",
+      "name": "아키텍처 전문가",
+      "role": "클린 아키텍처 및 SOLID 원칙 검토",
+      "expertise": ["Clean Architecture", "SOLID 원칙", "레이어 분리", "DI"],
+      "focus": "도메인/프레젠테이션 레이어 분리, 의존성 방향, 관심사 분리",
+      "persona": "10년 경력의 Flutter 아키텍처 전문가. 문제를 발견하면 반드시 구체적 리팩터링 방안을 함께 제시하며, 코드를 출시 가능한 수준으로 끌어올리는 것을 목표로 삼는 실용적 엔지니어"
     }
   ]
-}"
+}
+PROMPT_EOF
+)
 
   AGENT_RAW=$(cd "$PROJECT_DIR" && CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN" \
     "$CLAUDE_BIN" -p "$AGENT_GEN_PROMPT" 2>>"$LOG_DIR/${LOG_PREFIX}-generator.log")
@@ -240,11 +541,11 @@ except: print('fail')
   "framework": "Unknown",
   "detected_issues": ["구조 분석 필요"],
   "agents": [
-    {"id":"code_quality","name":"코드 품질 전문가","role":"전반적 코드 품질","expertise":["가독성","유지보수성","SOLID"],"focus":"코드 구조, 중복, 네이밍","persona":"엄격한 코드 품질 기준을 가진 시니어 개발자"},
-    {"id":"security","name":"보안 전문가","role":"보안 취약점","expertise":["인증","인가","입력 검증"],"focus":"취약점, 데이터 노출","persona":"보안 감사 경험이 많은 화이트햇 엔지니어"},
-    {"id":"performance","name":"성능 전문가","role":"성능 최적화","expertise":["메모리","CPU","네트워크"],"focus":"병목, 비효율 패턴","persona":"프로파일링과 최적화에 집착하는 퍼포먼스 엔지니어"},
-    {"id":"testing","name":"테스트 전문가","role":"테스트 커버리지","expertise":["단위 테스트","통합 테스트","TDD"],"focus":"커버리지, 격리, 모킹","persona":"TDD 신봉자이자 QA 전문가"},
-    {"id":"arch","name":"아키텍처 전문가","role":"시스템 구조","expertise":["아키텍처","DI","레이어 분리"],"focus":"의존성, 결합도","persona":"대규모 시스템 설계 경험을 가진 아키텍트"}
+    {"id":"code_quality","name":"코드 품질 전문가","role":"전반적 코드 품질","expertise":["가독성","유지보수성","SOLID"],"focus":"코드 구조, 중복, 네이밍","persona":"10년 경력의 시니어 개발자. 문제를 발견하면 반드시 구체적 개선 코드를 함께 제시하며, 코드를 출시 가능한 수준으로 끌어올리는 것을 목표로 삼는 실용적 엔지니어"},
+    {"id":"security","name":"보안 전문가","role":"보안 취약점","expertise":["인증","인가","입력 검증"],"focus":"취약점, 데이터 노출","persona":"보안 감사 경험이 많은 실용적 엔지니어. 취약점을 발견하면 즉시 수정 가능한 패치 코드를 제시하며, 보안 강화를 통해 코드 품질 향상을 이끄는 전문가"},
+    {"id":"performance","name":"성능 전문가","role":"성능 최적화","expertise":["메모리","CPU","네트워크"],"focus":"병목, 비효율 패턴","persona":"프로파일링과 최적화 경험이 풍부한 엔지니어. 성능 개선 기회를 발견하면 수치 기반 근거와 구체적 최적화 코드를 함께 제시"},
+    {"id":"testing","name":"테스트 전문가","role":"테스트 커버리지","expertise":["단위 테스트","통합 테스트","TDD"],"focus":"커버리지, 격리, 모킹","persona":"QA 경험이 풍부한 개발자. 테스트 공백을 발견하면 즉시 작성 가능한 테스트 코드를 제시하며, 안정성 향상을 통해 릴리즈 가능성을 높이는 것을 목표"},
+    {"id":"arch","name":"아키텍처 전문가","role":"시스템 구조","expertise":["아키텍처","DI","레이어 분리"],"focus":"의존성, 결합도","persona":"대규모 시스템 설계 경험을 가진 아키텍트. 구조적 문제를 발견하면 단계적 리팩터링 계획과 구체적 코드 예시를 함께 제시하는 해결 지향적 전문가"}
   ]
 }'
   fi
@@ -367,9 +668,47 @@ for round in $(seq "$START_ROUND" "$TOTAL_ROUNDS"); do
   log_progress "=========================================="
   mkdir -p "$SESSION_DIR/round-${round}"
 
+  # === 사용자 피드백 확인 (라운드별 1회) ===
+  FEEDBACK_FILE="${SESSION_DIR}/user-feedback.json"
+  USER_FEEDBACK_SECTION=""
+  if [ -f "$FEEDBACK_FILE" ]; then
+    USER_FEEDBACK_SECTION=$(python3 -c "
+import json
+try:
+    with open('${FEEDBACK_FILE}') as f:
+        data = json.load(f)
+    pending = [fb for fb in data.get('feedbacks', []) if not fb.get('used', False)]
+    if pending:
+        lines = ['\n\n=== 사용자 지시사항 (이번 라운드에 반드시 반영) ===']
+        for fb in pending:
+            lines.append('- ' + fb['text'])
+        for fb in data['feedbacks']:
+            if not fb.get('used', False):
+                fb['used'] = True
+                fb['used_at_round'] = ${round}
+        with open('${FEEDBACK_FILE}', 'w') as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        print('\n'.join(lines))
+except Exception:
+    pass
+" 2>/dev/null)
+  fi
+
   # ----------------------------------------------------------
   # 2a. 에이전트 병렬 분석
   # ----------------------------------------------------------
+  # 이전 라운드 점수 추출 (라운드 단위, 에이전트 공통)
+  ROUND_PREV_SCORE="?"
+  if [ "$round" -gt 1 ]; then
+    rp=$((round - 1))
+    ROUND_PREV_SCORE=$(python3 -c "
+import json
+try:
+    with open('$SESSION_DIR/round-${rp}/votes.json') as f: d = json.load(f)
+    print(f'{d.get(\"overall_quality_score\", 0):.1f}')
+except: print('?')
+" 2>/dev/null || echo "?")
+  fi
   log_progress "[R${round}] 에이전트 병렬 분석 시작 (${AGENT_COUNT_ACTUAL}명)..."
 
   for id in "${CR_AGENT_IDS[@]}"; do
@@ -380,23 +719,37 @@ for round in $(seq "$START_ROUND" "$TOTAL_ROUNDS"); do
     PERSONA=$(get_agent_field "$id" "persona")
 
     PREV_CONTEXT=""
+    PREV_SCORE_LINE=""
     if [ "$round" -gt 1 ]; then
       prev=$((round - 1))
-      MY_PREV=$(head -80 "$SESSION_DIR/round-${prev}/${id}.md" 2>/dev/null || echo "(없음)")
-      PREV_APPLIED=$(head -80 "$SESSION_DIR/round-${prev}/apply-changes.md" 2>/dev/null || echo "(없음)")
-      PREV_REVIEW=$(head -60 "$SESSION_DIR/round-${prev}/code-reviewer.md" 2>/dev/null || echo "(없음)")
+      MY_PREV=$(cat "$SESSION_DIR/round-${prev}/${id}.md" 2>/dev/null || echo "(없음)")
+      PREV_APPLIED=$(head -200 "$SESSION_DIR/round-${prev}/apply-changes.md" 2>/dev/null || echo "(없음)")
+      PREV_REVIEW=$(head -150 "$SESSION_DIR/round-${prev}/code-reviewer.md" 2>/dev/null || echo "(없음)")
+      PREV_SCORE=$(python3 -c "
+import json
+try:
+    with open('$SESSION_DIR/round-${prev}/votes.json') as f: d = json.load(f)
+    print(f'{d.get(\"overall_quality_score\", 0):.1f}')
+except: print('?')
+" 2>/dev/null || echo "?")
+      PREV_SCORE_LINE="이전 라운드(Round ${prev}) 품질 점수: ${PREV_SCORE}/10 → 이번 라운드 목표: 8.0 이상"
       PREV_CONTEXT="
+${PREV_SCORE_LINE}
+
+=== 나(${NAME})의 Round ${prev} 분석 ===
+${MY_PREV}
+
 === Round ${prev} 적용된 변경사항 ===
 ${PREV_APPLIED}
 
 === Round ${prev} 코드 리뷰어 피드백 ===
 ${PREV_REVIEW}
 
-=== 나(${NAME})의 Round ${prev} 의견 ===
-${MY_PREV}
-
 ---
-위 내용을 반영하여 새로운 관점에서 재분석하세요."
+목표: 이번 라운드에서 코드 품질을 8.0 이상으로 끌어올리세요.
+- 코드를 직접 재읽어 이전 변경사항이 실제 반영되었는지 확인하세요
+- 미해결 이슈는 구체적 수정 코드와 함께 다시 제안하세요
+- 새 이슈를 발견하면 해결책도 함께 제시하세요 (문제만 나열 금지)"
     fi
 
     REVIEW_PROMPT="당신은 ${NAME}입니다.
@@ -414,31 +767,55 @@ ${MY_PREV}
 ${PREV_CONTEXT}
 
 작업:
-1. Read/Glob/Grep으로 프로젝트 코드를 실제 분석하세요
-2. ${FOCUS} 관점에서 문제점과 개선사항 파악
-3. 구체적인 파일 경로와 코드 수정 방안 제시
+1. Read/Glob/Grep으로 프로젝트 코드를 직접 확인하세요 — 코드의 현재 실제 상태를 파악하세요
+2. ${FOCUS} 관점에서 점수를 8.0 이상으로 올리기 위한 개선사항을 우선 파악하세요
+3. 모든 이슈에 수정 후 코드 예시를 반드시 포함하세요 (문제만 나열 금지)
+4. 이전 라운드 변경사항이 실제 반영되었는지 확인하고 결과를 명시하세요
 
-다음 형식으로 응답하세요:
+다음 형식으로 상세하게 응답하세요:
 
 ## ${NAME} 코드 분석 (Round ${round})
+
+### 적극적 개선 제안 (점수 향상 핵심)
+품질을 8점 이상으로 올리기 위해 이번 라운드에 적용해야 할 가장 임팩트 큰 변경사항:
+**[개선-N]** 제목
+- 위치: 파일경로:라인번호
+- 예상 점수 기여: +X점 (왜 이 변경이 점수를 올리는가)
+- 현재 코드:
+  \`\`\`
+  (실제 코드 발췌)
+  \`\`\`
+- 개선된 코드:
+  \`\`\`
+  (수정된 코드 — 바로 적용 가능하게)
+  \`\`\`
 
 ### 발견된 이슈
 각 이슈별로:
 **[이슈-N]** 제목
-- 위치: 파일경로 (라인번호 가능하면 포함)
+- 위치: 파일경로:라인번호
 - 심각도: critical / high / medium / low
-- 문제: 무엇이 문제인지
-- 수정 방안: 구체적인 접근법 또는 코드 예시
+- 근본 원인: (설계 결함 / 누락 / 잘못된 패턴 등)
+- 현재 코드:
+  \`\`\`
+  (문제 코드 발췌)
+  \`\`\`
+- 수정 방안:
+  \`\`\`
+  (수정된 코드 예시)
+  \`\`\`
 
-### 즉시 수정 필요 (critical / high)
-우선순위 상위 이슈 최대 3개:
-1. 파일: ...  /  변경: ...
+### 이전 라운드 이슈 추적 (Round 2 이상)
+- [이슈명]: ✅ 해결 / ⚠️ 부분 해결 / ❌ 미해결 (코드 확인 결과)
 
 ### 전체 코드 평가
-- 품질 점수: X/10
+- 품질 점수: X/10 (점수 기준: 7=기능 정상, 8=출시 가능, 9=우수, 10=완벽)
+  근거: (2~3줄)
 - 릴리즈 가능: 가능 / 조건부 / 불가능
-- 주요 우려사항:"
+- 잘 된 점: (코드에서 좋은 부분 1~2가지 인정)
+- 이번 라운드 개선 제안 적용 시 예상 점수: X/10"
 
+    REVIEW_PROMPT="${REVIEW_PROMPT}${USER_FEEDBACK_SECTION}"
     run_cr_agent "$id" "$round" "$REVIEW_PROMPT" &
   done
   wait
@@ -452,7 +829,7 @@ ${PREV_CONTEXT}
   ALL_REVIEWS=""
   for id in "${CR_AGENT_IDS[@]}"; do
     NAME=$(get_agent_field "$id" "name")
-    content=$(head -200 "$SESSION_DIR/round-${round}/${id}.md" 2>/dev/null || echo "(없음)")
+    content=$(head -400 "$SESSION_DIR/round-${round}/${id}.md" 2>/dev/null || echo "(없음)")
     ALL_REVIEWS+="=== ${NAME} ===
 ${content}
 
@@ -464,14 +841,25 @@ ${content}
   VOTE_PROMPT="당신은 코드 리뷰 투표 집계 전문가입니다. 한국어로 응답하세요.
 
 총 에이전트: ${AGENT_COUNT_ACTUAL}명 | 과반수 기준: ${MAJORITY}명 이상
+이전 라운드 품질 점수: ${ROUND_PREV_SCORE}/10
+
+점수 기준 (반드시 이 루브릭으로 평가):
+- 5점: 기본 기능만 동작, 다수의 심각한 문제
+- 6점: 동작하지만 중요한 개선 필요
+- 7점: 기능 정상, 일부 개선 권장
+- 8점: 출시 가능, 소소한 개선 여지 있음
+- 9점: 코드 품질 우수, 최적화 수준
+- 10점: 완벽, 개선할 것이 없음
 
 === 에이전트 리뷰 결과 ===
 ${ALL_REVIEWS}
 
 ${AGENT_COUNT_ACTUAL}개 리뷰에서:
-1. 같은 또는 유사한 이슈를 언급한 에이전트 수를 집계하세요
+1. 같은 또는 유사한 이슈/개선사항을 언급한 에이전트 수를 집계하세요
 2. ${MAJORITY}명 이상 동의한 변경사항을 채택 목록에 포함하세요
 3. 미달인 것은 기각 목록에 포함하세요
+4. overall_quality_score는 위 루브릭 기준으로 공정하게 평가하세요
+   (이전 점수 ${ROUND_PREV_SCORE}에서 이번에 적용된 개선사항이 반영된 점수)
 
 다음 JSON 형식으로만 응답하세요 (마크다운 코드블록 사용 가능):
 {
@@ -492,9 +880,11 @@ ${AGENT_COUNT_ACTUAL}개 리뷰에서:
   \"rejected_changes\": [
     {\"title\": \"기각된 변경\", \"votes\": 1, \"reason\": \"과반수 미달\"}
   ],
-  \"overall_quality_score\": 6.5,
+  \"overall_quality_score\": 7.5,
+  \"prev_quality_score\": ${ROUND_PREV_SCORE},
+  \"score_change\": 1.0,
   \"release_ready\": false,
-  \"summary\": \"이번 라운드 핵심 발견사항 요약\"
+  \"summary\": \"이번 라운드 핵심 개선사항 요약\"
 }"
 
   VOTE_RAW=$(CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN" \
@@ -522,7 +912,7 @@ changes = d.get('agreed_changes', [])
 lines.append(f'## ✅ 채택 ({len(changes)}개)\n\n')
 for c in changes:
     lines.append(f"### [{c.get('severity','?').upper()}] {c.get('title','')}\n")
-    lines.append(f"- 파일: `{c.get('file','?')}`\n- 찬성: {c.get('votes',0)}표\n- 설명: {c.get('description','')}\n\n")
+    lines.append(f"- 파일: \`{c.get('file','?')}\`\n- 찬성: {c.get('votes',0)}표\n- 설명: {c.get('description','')}\n\n")
 rejected = d.get('rejected_changes', [])
 if rejected:
     lines.append(f'## ❌ 기각 ({len(rejected)}개)\n\n')
@@ -697,9 +1087,16 @@ ${ALL_OPINIONS}
 코드 리뷰어:
 ${REVIEWER_TAIL}
 
-판정 기준:
-- 수렴(true): 모든 에이전트가 critical/high 이슈 없음 + 릴리즈 가능
-- 비수렴(false): 한 명 이상이 중요 미해결 이슈 제기
+수렴 판정 기준 (다음 중 하나라도 충족하면 converged: true):
+1. quality_score >= 8.0 (출시 가능 수준)
+2. 모든 에이전트가 critical 이슈 없음 + release_ready: true
+3. 이번 라운드에서 새로운 critical/high 이슈가 발견되지 않고 이전 대비 개선된 경우
+
+비수렴 기준:
+- quality_score < 7.0 이거나
+- 미해결 critical 이슈가 2개 이상 남아있는 경우
+
+(참고: high 이슈가 있어도 quality_score >= 8.0이면 수렴 가능)
 
 JSON으로만 응답:
 {

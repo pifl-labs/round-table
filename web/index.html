@@ -200,6 +200,24 @@
   .continue-bar .btn-continue { padding: 7px 18px; background: var(--purple); color: #fff; border: none; border-radius: 8px; cursor: pointer; font-weight: 700; font-size: 13px; white-space: nowrap; }
   .continue-bar .btn-continue:hover { opacity: 0.85; }
   .continue-bar .btn-continue:disabled { opacity: 0.35; cursor: not-allowed; }
+
+  /* Feedback panel */
+  .feedback-panel { padding: 16px 24px; border-bottom: 1px solid var(--border); background: rgba(99,102,241,0.04); }
+  .feedback-panel-header { font-size: 12px; font-weight: 600; color: var(--purple); letter-spacing: 0.04em; text-transform: uppercase; margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
+  .feedback-panel-hint { font-weight: 400; color: var(--muted); font-size: 11px; text-transform: none; letter-spacing: 0; }
+  .feedback-input-row { display: flex; gap: 10px; margin-bottom: 10px; }
+  .feedback-input-row textarea { flex: 1; padding: 10px 14px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-size: 13px; resize: none; min-height: 54px; max-height: 120px; line-height: 1.5; font-family: inherit; transition: border-color 0.15s; }
+  .feedback-input-row textarea:focus { outline: none; border-color: var(--purple); }
+  .feedback-input-row textarea::placeholder { color: var(--muted); }
+  .btn-feedback { padding: 8px 16px; background: var(--purple); color: #fff; border: none; border-radius: 8px; cursor: pointer; font-size: 13px; font-weight: 700; white-space: nowrap; align-self: flex-end; transition: opacity 0.15s; }
+  .btn-feedback:hover { opacity: 0.85; }
+  .feedback-list { display: flex; flex-direction: column; gap: 6px; }
+  .feedback-item { display: flex; align-items: flex-start; gap: 10px; padding: 8px 12px; background: var(--bg); border: 1px solid rgba(99,102,241,0.2); border-radius: 8px; }
+  .feedback-item.used { opacity: 0.6; }
+  .feedback-item-text { flex: 1; font-size: 12px; line-height: 1.5; color: var(--text); }
+  .feedback-item-meta { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .feedback-item-del { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 13px; padding: 2px 5px; border-radius: 4px; line-height: 1; flex-shrink: 0; }
+  .feedback-item-del:hover { color: var(--red); }
 </style>
 </head>
 <body>
@@ -208,6 +226,11 @@
   <span class="flag">🏴‍☠️</span>
   <h1>Round Table</h1>
   <span class="sub">Claude Multi-Agent Debate System</span>
+  <div style="margin-left:auto;display:flex;gap:8px;">
+    <a href="/" style="color:var(--accent);font-size:13px;text-decoration:none;padding:6px 12px;border:1px solid var(--accent);border-radius:8px;">🏴 토론</a>
+    <a href="/code-review" style="color:var(--muted);font-size:13px;text-decoration:none;padding:6px 12px;border:1px solid var(--border);border-radius:8px;">🔍 코드 리뷰</a>
+    <a href="/task" style="color:var(--muted);font-size:13px;text-decoration:none;padding:6px 12px;border:1px solid var(--border);border-radius:8px;">🔧 작업 파이프라인</a>
+  </div>
 </div>
 
 <div class="container">
@@ -272,6 +295,16 @@
       <button class="btn-continue" onclick="continueDebate()">계속 토론</button>
       <span style="font-size:12px; color:var(--muted)">완료된 토론에서 더 깊이 논의합니다</span>
     </div>
+
+    <div class="feedback-panel" id="feedbackPanel" style="display:none">
+      <div class="feedback-panel-header">💬 의견 등록 <span class="feedback-panel-hint">다음 라운드에 반영됩니다</span></div>
+      <div class="feedback-input-row">
+        <textarea id="feedbackText" placeholder="'보안 측면에서 더 깊이 분석해주세요', '이 방향으로 집중해주세요' 등..." oninput="autoResizeFeedback(this)"></textarea>
+        <button class="btn-feedback" onclick="submitFeedback()">등록</button>
+      </div>
+      <div id="feedbackList" class="feedback-list"></div>
+    </div>
+
     <div class="agent-badges" id="detail-agents"></div>
 
     <div class="tabs" style="margin-top: 16px;">
@@ -446,6 +479,15 @@ function renderDetail(data) {
   // Continue bar — completed 세션에서만 표시
   document.getElementById('continue-bar').style.display =
     data.status === 'completed' ? 'flex' : 'none';
+
+  // Show feedback panel for running or completed sessions
+  const feedbackPanel = document.getElementById('feedbackPanel');
+  if (['running', 'completed'].includes(data.status)) {
+    feedbackPanel.style.display = '';
+    loadFeedback();
+  } else {
+    feedbackPanel.style.display = 'none';
+  }
 
   // File tree
   const fileKeys = Object.keys(files).filter(f => f !== 'meta.json').sort();
@@ -756,6 +798,63 @@ async function continueDebate() {
     btn.disabled = false;
     btn.textContent = '계속 토론';
   }
+}
+
+// ============================================================
+// Feedback
+// ============================================================
+function autoResizeFeedback(el) {
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+}
+
+async function loadFeedback() {
+  if (!currentSession) return;
+  try {
+    const res = await fetch(`/api/session/${currentSession}/feedback`);
+    if (!res.ok) return;
+    const data = await res.json();
+    renderFeedbackList(data.feedbacks || []);
+  } catch {}
+}
+
+function renderFeedbackList(feedbacks) {
+  const el = document.getElementById('feedbackList');
+  if (!el) return;
+  if (!feedbacks.length) { el.innerHTML = ''; return; }
+  el.innerHTML = feedbacks.map((fb, i) => `
+    <div class="feedback-item ${fb.used ? 'used' : ''}">
+      <div style="flex:1">
+        <div class="feedback-item-text">${escapeHtml(fb.text)}</div>
+        <div class="feedback-item-meta">${fb.used ? '✓ 반영됨' + (fb.used_at_round ? ' (Round ' + fb.used_at_round + ')' : '') : '⏳ 다음 라운드에 반영 예정'}</div>
+      </div>
+      ${!fb.used ? `<button class="feedback-item-del" onclick="deleteFeedback(${i})" title="삭제">✕</button>` : ''}
+    </div>
+  `).join('');
+}
+
+async function submitFeedback() {
+  if (!currentSession) return;
+  const ta = document.getElementById('feedbackText');
+  const text = ta.value.trim();
+  if (!text) return;
+  try {
+    await fetch(`/api/session/${currentSession}/feedback`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+    });
+    ta.value = ''; ta.style.height = '';
+    await loadFeedback();
+  } catch {}
+}
+
+async function deleteFeedback(idx) {
+  if (!currentSession) return;
+  try {
+    await fetch(`/api/session/${currentSession}/feedback/${idx}`, { method: 'DELETE' });
+    await loadFeedback();
+  } catch {}
 }
 
 // Cmd/Ctrl+Enter로 토론 시작 (textarea에서 Enter는 줄바꿈)
