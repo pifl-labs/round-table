@@ -306,6 +306,33 @@
     border-radius: 12px; margin-bottom: 16px;
   }
   .agents-ready-banner h3 { font-size: 15px; font-weight: 700; color: var(--accent); margin-bottom: 12px; }
+  .agents-ready-ai-section {
+    margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border);
+  }
+  .ai-recommend-box {
+    margin-top: 12px; padding: 12px 14px;
+    border-radius: 8px; border: 1px solid; display: flex; align-items: flex-start; gap: 12px;
+  }
+  .ai-recommend-box.claude   { background: rgba(59,130,246,0.07); border-color: rgba(59,130,246,0.3); }
+  .ai-recommend-box.gemini   { background: rgba(234,179,8,0.07);  border-color: rgba(234,179,8,0.3); }
+  .ai-recommend-box.codex    { background: rgba(249,115,22,0.07); border-color: rgba(249,115,22,0.3); }
+  .ai-recommend-icon { font-size: 22px; line-height: 1; flex-shrink: 0; margin-top: 1px; }
+  .ai-recommend-body { flex: 1; min-width: 0; }
+  .ai-recommend-title { font-size: 12px; font-weight: 700; color: var(--text); margin-bottom: 4px; }
+  .ai-recommend-reason { font-size: 11px; color: var(--muted); line-height: 1.6; }
+  .ai-recommend-signals { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 4px; }
+  .ai-recommend-signal {
+    font-size: 10px; padding: 2px 7px; border-radius: 10px;
+    background: rgba(255,255,255,0.06); color: var(--muted); border: 1px solid var(--border);
+  }
+  .ai-recommend-signal.hit { color: var(--accent); border-color: rgba(6,182,212,0.3); background: rgba(6,182,212,0.07); }
+  .btn-apply-recommend {
+    flex-shrink: 0; margin-top: 2px;
+    background: none; border: 1px solid var(--border); color: var(--muted);
+    border-radius: 6px; padding: 5px 10px; font-size: 11px; cursor: pointer;
+    transition: all 0.15s;
+  }
+  .btn-apply-recommend:hover { color: var(--accent); border-color: var(--accent); }
   .agent-persona-card {
     background: var(--bg); border: 1px solid var(--border); border-radius: 10px;
     padding: 14px 16px; margin-bottom: 8px;
@@ -758,6 +785,23 @@ function renderSessionDetail(session) {
       </div>`;
     }).join('');
 
+    const currentProfile = session.ai_profile || 'claude';
+    const profileMeta = {
+      'claude':     { icon: '🔵', label: 'Claude 전용',  desc: '파일 직접 탐색 · 높은 정확도', cost: '토큰 소모 많음' },
+      'gemini-cli': { icon: '🟡', label: 'Gemini CLI',   desc: 'Claude(탐색) + Gemini CLI(분석)', cost: '무료 · Google 계정' },
+      'codex-cli':  { icon: '🟠', label: 'Codex CLI',    desc: 'Claude(탐색) + Codex CLI(분석)', cost: '무료 · ChatGPT 계정' },
+    };
+    const profileCards = Object.entries(profileMeta).map(([id, p]) =>
+      `<div class="ai-profile-card${id === currentProfile ? ' active' : ''}" data-profile="${id}"
+           onclick="selectReadyProfile(this)" style="min-width:140px;flex:1">
+        <div class="ai-profile-icon">${p.icon}</div>
+        <div class="ai-profile-info">
+          <div class="ai-profile-name">${p.label}</div>
+          <div class="ai-profile-desc">${p.desc}<br><span class="ai-profile-cost">${p.cost}</span></div>
+        </div>
+      </div>`
+    ).join('');
+
     agentsPanel.innerHTML = `<div class="agents-ready-banner">
       <h3>👥 에이전트 생성 완료 — 리뷰 팀을 확인하세요</h3>
       <div style="font-size:13px;color:var(--muted);margin-bottom:16px">
@@ -765,6 +809,11 @@ function renderSessionDetail(session) {
         각 에이전트의 역할과 페르소나를 확인한 후 리뷰를 시작하세요.
       </div>
       ${personaCards}
+      <div class="agents-ready-ai-section">
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted);margin-bottom:10px">에이전트 실행 AI</div>
+        <div class="ai-profile-cards" id="readyAiProfileCards">${profileCards}</div>
+        ${renderAiRecommendBox(recommendAiProfile(session))}
+      </div>
       <div style="margin-top:16px;display:flex;align-items:center;gap:12px">
         <button class="btn" onclick="confirmAndRunReview('${session.id || currentSessionId}')">
           ▶ 이 팀으로 리뷰 시작
@@ -1113,14 +1162,127 @@ function renderLogs(logs) {
 // ============================================================
 // 에이전트 확인 후 리뷰 시작
 // ============================================================
+function selectReadyProfile(card) {
+  document.querySelectorAll('#readyAiProfileCards .ai-profile-card').forEach(c => c.classList.remove('active'));
+  card.classList.add('active');
+}
+
+// ============================================================
+// AI 프로파일 추천 엔진
+// ============================================================
+function recommendAiProfile(session) {
+  const agents = session.agents || [];
+  const agentsDetail = (session.agents_detail?.agents || []);
+  const issues = session.detected_issues || [];
+
+  // 분석 대상 텍스트 합산
+  const corpus = [
+    session.topic || '',
+    session.language || '',
+    session.framework || '',
+    ...agents.map(a => `${a.name || ''} ${a.role || ''}`),
+    ...agentsDetail.map(a => [
+      a.role || '', a.focus || '', a.persona || '',
+      ...(Array.isArray(a.expertise) ? a.expertise : []),
+    ].join(' ')),
+    ...issues,
+  ].join(' ').toLowerCase();
+
+  // 각 AI 특화 키워드 (한/영 혼용)
+  const signals = {
+    claude: {
+      keywords: [
+        '아키텍처','architecture','리팩터링','refactor','fsm','상태','state',
+        '의존성','dependency','설계','복잡','complex','디버깅','debug',
+        '마이그레이션','migration','스키마','schema','보안','security',
+        '클린','clean','레이어','layer','패턴','pattern','riverpod',
+        '코드베이스','codebase','flutter','dart','라이프사이클','lifecycle',
+        '추상화','abstraction','인터페이스','interface','도메인','domain',
+      ],
+      label: 'Claude Code 권장',
+      icon: '🔵',
+      colorClass: 'claude',
+      reason: '복잡한 코드베이스 구조 파악 · 아키텍처 리팩터링 · 장기 디버깅에 Claude의 깊은 맥락 이해가 가장 효과적입니다.',
+    },
+    codex: {
+      keywords: [
+        '테스트','test','커버리지','coverage','qa','릴리즈','release',
+        '배포','deploy','플랫폼','platform','android','ios','빌드','build',
+        '병렬','parallel','성능','performance','ci','검증','validate',
+        '위젯테스트','integration test','unit test','독립','isolated',
+        '스토어','store','출시','launch','앱스토어',
+      ],
+      label: 'Codex CLI 권장',
+      icon: '🟠',
+      colorClass: 'codex',
+      reason: '테스트 · 플랫폼 검증 · 릴리즈 준비처럼 독립적이고 병렬 처리가 유리한 작업 비중이 높습니다.',
+    },
+    gemini: {
+      keywords: [
+        'mcp','api','external','외부','연동','자동화','automation',
+        '터미널','terminal','문서','documentation','generate','생성',
+        'plugin','플러그인','toolchain','google','firebase','cloud',
+        'scaffold','스캐폴드','openapi','swagger','webhook',
+      ],
+      label: 'Gemini CLI 권장',
+      icon: '🟡',
+      colorClass: 'gemini',
+      reason: 'API 연동 · 외부 툴체인 · 자동화 파이프라인 중심 작업에 Gemini CLI의 MCP 확장성이 유리합니다.',
+    },
+  };
+
+  // 점수 계산 + 매칭 키워드 수집
+  const result = {};
+  for (const [id, s] of Object.entries(signals)) {
+    const hits = s.keywords.filter(kw => corpus.includes(kw));
+    result[id] = { ...s, score: hits.length, hits };
+  }
+
+  // 승자 결정 (동점이면 claude 우선)
+  const winner = ['claude', 'codex', 'gemini']
+    .sort((a, b) => result[b].score - result[a].score)[0];
+
+  return { winner, profiles: result };
+}
+
+function renderAiRecommendBox(rec) {
+  const w = rec.profiles[rec.winner];
+  // 상위 3개 히트 신호 + 나머지 후보 점수
+  const topHits = w.hits.slice(0, 5);
+  const others = Object.entries(rec.profiles)
+    .filter(([id]) => id !== rec.winner)
+    .map(([id, p]) => `${p.icon} ${p.label.replace(' 권장','')} ${p.score}pt`).join(' · ');
+
+  const signalHtml = topHits.length
+    ? topHits.map(kw => `<span class="ai-recommend-signal hit">${kw}</span>`).join('')
+      + (others ? `<span class="ai-recommend-signal" style="margin-left:4px">${others}</span>` : '')
+    : `<span class="ai-recommend-signal">신호 없음 — Claude 기본 권장</span>`;
+
+  return `<div class="ai-recommend-box ${w.colorClass}">
+    <div class="ai-recommend-icon">${w.icon}</div>
+    <div class="ai-recommend-body">
+      <div class="ai-recommend-title">✨ ${w.label}</div>
+      <div class="ai-recommend-reason">${w.reason}</div>
+      <div class="ai-recommend-signals">${signalHtml}</div>
+    </div>
+    <button class="btn-apply-recommend" onclick="applyRecommendedProfile('${rec.winner}')">이 AI 선택</button>
+  </div>`;
+}
+
+function applyRecommendedProfile(profileId) {
+  const card = document.querySelector(`#readyAiProfileCards .ai-profile-card[data-profile="${profileId}"]`);
+  if (card) selectReadyProfile(card);
+}
+
 async function confirmAndRunReview(sessionId) {
   const btn = event.currentTarget;
+  const aiProfile = document.querySelector('#readyAiProfileCards .ai-profile-card.active')?.dataset.profile || 'claude';
   btn.disabled = true; btn.textContent = '⟳ 리뷰 시작 중...';
   try {
     const res = await fetch('/api/code-review/run', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sessionId }),
+      body: JSON.stringify({ sessionId, aiProfile }),
     });
     if (res.ok) {
       // SSE가 상태 변경을 감지해서 UI 업데이트

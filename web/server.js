@@ -324,17 +324,25 @@ function startCodeReview({ topic, context = "", rounds = 2, agentCount = 5, proj
   return { started: true, pid: child.pid, sessionId, rounds: r, agentCount: n };
 }
 
-function runCodeReview(sessionId) {
+function runCodeReview(sessionId, aiProfile) {
   const sessionDir = join(CR_SESSIONS_DIR, sessionId);
   if (!existsSync(sessionDir)) return null;
   const meta = safeJson(join(sessionDir, "meta.json")) || {};
   if (meta.status !== "agents-ready") return { error: `잘못된 상태: ${meta.status}` };
+  // AI 프로파일 변경이 있으면 meta.json에 반영
+  const validProfiles = ["claude", "gemini-cli", "codex-cli"];
+  if (aiProfile && validProfiles.includes(aiProfile) && aiProfile !== meta.ai_profile) {
+    writeFileSync(
+      join(sessionDir, "meta.json"),
+      JSON.stringify({ ...meta, ai_profile: aiProfile }, null, 2)
+    );
+  }
   const script = join(BASE, "code-review-orchestrator.sh");
   const child = spawn("bash", [script, "run", sessionId], {
     cwd: BASE, detached: true, stdio: "ignore", env: { ...process.env },
   });
   child.unref();
-  return { started: true, pid: child.pid, sessionId };
+  return { started: true, pid: child.pid, sessionId, ai_profile: aiProfile || meta.ai_profile };
 }
 
 function continueCodeReview({ sessionId, rounds = 1 }) {
@@ -1161,9 +1169,9 @@ const server = createServer((req, res) => {
     req.on("data", (c) => (body += c));
     req.on("end", () => {
       try {
-        const { sessionId } = JSON.parse(body);
+        const { sessionId, aiProfile } = JSON.parse(body);
         if (!sessionId) return json({ error: "sessionId is required" }, 400);
-        const result = runCodeReview(sessionId);
+        const result = runCodeReview(sessionId, aiProfile);
         return result ? json(result) : json({ error: "Session not found or invalid status" }, 400);
       } catch (e) {
         return json({ error: e.message }, 400);
