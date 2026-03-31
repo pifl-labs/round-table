@@ -6,6 +6,7 @@ import { createServer } from "node:http";
 import { request } from "node:https";
 import { readFileSync, writeFileSync, mkdirSync, rmSync, readdirSync, statSync, existsSync } from "node:fs";
 import { join, extname, resolve } from "node:path";
+import { tmpdir } from "node:os";
 import { spawn } from "node:child_process";
 
 // .env 파일 로딩 (dotenv 없이)
@@ -71,19 +72,176 @@ function listAgents() {
   return AVAILABLE_AGENTS;
 }
 
+// CLI를 spawn으로 실행하고 결과 텍스트 반환 (timeout ms)
+function runCliProbe(bin, args, timeoutMs) {
+  return new Promise((resolve) => {
+    let out = "";
+    const proc = spawn(bin, args, { env: { ...process.env, HOME: process.env.HOME } });
+    proc.stdout.on("data", (d) => { out += d; });
+    proc.stderr.on("data", (d) => { out += d; });
+    const timer = setTimeout(() => { proc.kill(); resolve({ ok: true, output: out }); }, timeoutMs);
+    proc.on("close", (code) => { clearTimeout(timer); resolve({ ok: code === 0, output: out }); });
+    proc.on("error", () => { clearTimeout(timer); resolve({ ok: false, output: out }); });
+  });
+}
+
+function getProviderStatus() {
+  const result = {};
+
+  // ── Claude (Code) ────────────────────────────────────────────
+  const claudeBin = process.env.CLAUDE_BIN || (existsSync("/Users/pirate/.local/bin/claude") ? "/Users/pirate/.local/bin/claude" : null);
+  let claudeInputTokens = 0, claudeOutputTokens = 0, claudeSessions = 0;
+  // 오늘 날짜 기준 통계
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const statsPath = join(process.env.HOME || "/Users/pirate", ".claude", "stats-cache.json");
+  let todayActivity = null, weekSessions = 0, weekMessages = 0;
+  try {
+    const stats = JSON.parse(readFileSync(statsPath, "utf-8"));
+    const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
+    const recent = (stats.dailyActivity || []).filter(d => d.date >= weekAgo);
+    todayActivity = recent.find(d => d.date === todayStr) || null;
+    weekSessions = recent.reduce((s, d) => s + (d.sessionCount || 0), 0);
+    weekMessages = recent.reduce((s, d) => s + (d.messageCount || 0), 0);
+  } catch {}
+  // 로그에서 토큰 합계 및 날짜 범위
+  let claudeCost = 0, firstLogDate = null, lastLogDate = null;
+  if (existsSync(LOGS_DIR)) {
+    for (const f of readdirSync(LOGS_DIR)) {
+      if (!f.endsWith(".log")) continue;
+      try {
+        const fileMtime = statSync(join(LOGS_DIR, f)).mtime;
+        const dateStr = fileMtime.toISOString().slice(0, 10);
+        if (!firstLogDate || dateStr < firstLogDate) firstLogDate = dateStr;
+        if (!lastLogDate || dateStr > lastLogDate) lastLogDate = dateStr;
+        const content = readFileSync(join(LOGS_DIR, f), "utf-8");
+        for (const line of content.split("\n")) {
+          if (!line.startsWith("{")) continue;
+          try {
+            const obj = JSON.parse(line);
+            if (obj.type === "result" && obj.total_cost_usd != null) {
+              claudeCost += obj.total_cost_usd;
+              claudeInputTokens += (obj.usage?.input_tokens ?? 0)
+                + (obj.usage?.cache_creation_input_tokens ?? 0)
+                + (obj.usage?.cache_read_input_tokens ?? 0);
+              claudeOutputTokens += obj.usage?.output_tokens ?? 0;
+              claudeSessions++;
+            }
+          } catch {}
+        }
+      } catch {}
+    }
+  }
+  // 날짜 범위 → 일 평균 → 월 환산
+  const logDays = (firstLogDate && lastLogDate)
+    ? Math.max(1, Math.round((new Date(lastLogDate) - new Date(firstLogDate)) / 86400000) + 1)
+    : 1;
+  const costPerDay = claudeCost / logDays;
+  const monthlyEstimate = costPerDay * 30;
+  result.claude = {
+    available: !!claudeBin,
+    status: claudeBin ? "ok" : "not_found",
+    input_tokens: claudeInputTokens,
+    output_tokens: claudeOutputTokens,
+    log_sessions: claudeSessions,
+    cost_usd: parseFloat(claudeCost.toFixed(4)),
+    cost_per_day: parseFloat(costPerDay.toFixed(4)),
+    monthly_estimate: parseFloat(monthlyEstimate.toFixed(2)),
+    log_days: logDays,
+    log_date_from: firstLogDate,
+    log_date_to: lastLogDate,
+    today_messages: todayActivity?.messageCount ?? null,
+    today_sessions: todayActivity?.sessionCount ?? null,
+    week_messages: weekMessages,
+    week_sessions: weekSessions,
+    label: "Claude (Code)",
+  };
+
+  // ── Gemini CLI ─────────────────────────────────────────────
+  // Gemini CLI은 에러 발생 시 OS temp 디렉토리에 JSON 파일을 남김.
+  // 파일 mtime + 에러 메시지의 reset 시간 → 남은 시간 실시간 계산
+  const geminiBin = process.env.GEMINI_BIN || (existsSync("/opt/homebrew/bin/gemini") ? "/opt/homebrew/bin/gemini" : null);
+  let geminiStatus = "not_found", geminiResetIn = null;
+  if (geminiBin) {
+    geminiStatus = "ok";
+    try {
+      const tmp = tmpdir();
+      const errFiles = readdirSync(tmp)
+        .filter(f => f.startsWith("gemini-client-error-") && f.endsWith(".json"))
+        .map(f => ({ path: join(tmp, f), mtime: statSync(join(tmp, f)).mtimeMs }))
+        .sort((a, b) => b.mtime - a.mtime);
+      if (errFiles.length > 0) {
+        const content = JSON.parse(readFileSync(errFiles[0].path, "utf-8"));
+        const msg = content.message || content.error?.message || "";
+        const m = msg.match(/reset after ((\d+)h)?((\d+)m)?((\d+)s)?/i);
+        if (m) {
+          const resetMs = ((parseInt(m[2]||0)*3600) + (parseInt(m[4]||0)*60) + parseInt(m[6]||0)) * 1000;
+          const resetAt = errFiles[0].mtime + resetMs;
+          if (Date.now() < resetAt) {
+            geminiStatus = "quota_exhausted";
+            const rem = resetAt - Date.now();
+            const rh = Math.floor(rem / 3600000);
+            const rm2 = Math.floor((rem % 3600000) / 60000);
+            const rs = Math.floor((rem % 60000) / 1000);
+            geminiResetIn = [rh && `${rh}h`, rm2 && `${rm2}m`, rs && `${rs}s`].filter(Boolean).join("");
+          }
+          // resetAt <= now 이면 이미 리셋 → status 유지 "ok"
+        }
+      }
+    } catch {}
+  }
+  result.gemini_cli = {
+    available: !!geminiBin,
+    status: geminiStatus,
+    reset_in: geminiResetIn,
+    label: "Gemini CLI (OAuth)",
+  };
+
+  // ── Gemini REST API ──────────────────────────────────────────
+  const geminiApiKey = process.env.GEMINI_API_KEY;
+  result.gemini_api = {
+    available: !!geminiApiKey,
+    status: geminiApiKey ? "configured" : "no_key",
+    label: "Gemini REST API",
+  };
+
+  // ── Codex CLI ────────────────────────────────────────────────
+  // Codex는 interactive 전용이라 바이너리 존재 여부만 체크
+  const codexBin = process.env.CODEX_BIN || (existsSync("/opt/homebrew/bin/codex") ? "/opt/homebrew/bin/codex" : null);
+  const codexStatus = codexBin ? "ok" : "not_found";
+  result.codex_cli = {
+    available: !!codexBin,
+    status: codexStatus,
+    label: "Codex CLI (ChatGPT OAuth)",
+  };
+
+  // ── OpenAI REST API ──────────────────────────────────────────
+  const openaiKey = process.env.OPENAI_API_KEY;
+  result.openai_api = {
+    available: !!openaiKey,
+    status: openaiKey ? "configured" : "no_key",
+    label: "OpenAI REST API",
+  };
+
+  result._checked_at = new Date().toISOString();
+  return result;
+}
+
 function listProjects() {
   const wsName = WORKSPACE_DIR.split("/").pop() || "workspace";
   const projects = [{ id: "root", name: `${wsName} (전체)`, path: WORKSPACE_DIR }];
   if (!existsSync(WORKSPACE_DIR)) return projects;
 
   const SKIP = new Set(["node_modules", ".git", "packages", "logs", "sessions",
-    "build", ".dart_tool", ".gradle", ".idea", "android", "ios", "web", ".fvm"]);
+    "build", ".dart_tool", ".gradle", ".idea", "android", "ios", ".fvm"]);
 
   const getLabel = (dir, name) => {
     if (existsSync(join(dir, "pubspec.yaml"))) return `${name} (Flutter)`;
     if (existsSync(join(dir, "package.json"))) return `${name} (Node)`;
     if (existsSync(join(dir, "pyproject.toml")) || existsSync(join(dir, "setup.py"))) return `${name} (Python)`;
     if (existsSync(join(dir, "go.mod"))) return `${name} (Go)`;
+    try {
+      if (readdirSync(dir).some(f => f.endsWith(".sh"))) return `${name} (Shell)`;
+    } catch {}
     return null;
   };
 
@@ -1136,6 +1294,7 @@ const server = createServer((req, res) => {
   if (path === "/api/agents") return json(listAgents());
   if (path === "/api/projects") return json(listProjects());
   if (path === "/api/sessions") return json(listSessions());
+  if (path === "/api/provider-status") return json(getProviderStatus());
 
   // Code Review API
   if (path === "/api/code-review/sessions") return json(listCodeReviewSessions());

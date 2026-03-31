@@ -604,13 +604,14 @@ fi
 # ============================================================
 if [ "$MODE" = "--continue" ]; then
   CURRENT_STATUS=$(py_get status "unknown")
-  if [ "$CURRENT_STATUS" != "completed" ]; then
-    echo "❌ --continue는 completed 상태에서만 가능 (현재: $CURRENT_STATUS)" >&2; exit 1
+  if [ "$CURRENT_STATUS" != "completed" ] && [ "$CURRENT_STATUS" != "running" ]; then
+    echo "❌ --continue는 completed 또는 running 상태에서만 가능 (현재: $CURRENT_STATUS)" >&2; exit 1
   fi
 
   LAST_DONE=0
-  for r in $(seq 1 9); do
-    if ls "$SESSION_DIR/round-${r}/"*.md 2>/dev/null | head -1 | grep -q .; then
+  for r in $(seq 1 99); do
+    [ -d "$SESSION_DIR/round-${r}" ] || break
+    if [ -f "$SESSION_DIR/round-${r}/votes.json" ]; then
       LAST_DONE=$r
     fi
   done
@@ -759,7 +760,8 @@ try:
     print(f'{d.get(\"overall_quality_score\", 0):.1f}')
 except: print('?')
 " 2>/dev/null || echo "?")
-      PREV_SCORE_LINE="이전 라운드(Round ${prev}) 품질 점수: ${PREV_SCORE}/10 → 이번 라운드 목표: 8.0 이상"
+      PREV_SCORE_LINE="이전 라운드(Round ${prev}) 품질 점수: ${PREV_SCORE}/10"
+
       PREV_CONTEXT="
 ${PREV_SCORE_LINE}
 
@@ -773,10 +775,11 @@ ${PREV_APPLIED}
 ${PREV_REVIEW}
 
 ---
-목표: 이번 라운드에서 코드 품질을 8.0 이상으로 끌어올리세요.
-- 코드를 직접 재읽어 이전 변경사항이 실제 반영되었는지 확인하세요
-- 미해결 이슈는 구체적 수정 코드와 함께 다시 제안하세요
-- 새 이슈를 발견하면 해결책도 함께 제시하세요 (문제만 나열 금지)"
+이번 라운드 지침:
+- 다른 에이전트의 개선 제안은 **기본적으로 긍정적으로 수용**하되, 적용 시 주의사항이 있으면 함께 명시
+- 단순 반복 동의보다는 새로운 문제점·리스크·엣지케이스 발굴에 집중
+- 코드를 직접 재읽어 이전 변경사항이 실제 반영되었는지 확인
+- 새 이슈가 없으면 명시적으로 '이번 라운드 신규 이슈 없음' 선언 (빈 칸 채우기 금지)"
     fi
 
     REVIEW_PROMPT="당신은 ${NAME}입니다.
@@ -804,22 +807,8 @@ ${PREV_CONTEXT}
 
 ## ${NAME} 코드 분석 (Round ${round})
 
-### 적극적 개선 제안 (점수 향상 핵심)
-품질을 8점 이상으로 올리기 위해 이번 라운드에 적용해야 할 가장 임팩트 큰 변경사항:
-**[개선-N]** 제목
-- 위치: 파일경로:라인번호
-- 예상 점수 기여: +X점 (왜 이 변경이 점수를 올리는가)
-- 현재 코드:
-  \`\`\`
-  (실제 코드 발췌)
-  \`\`\`
-- 개선된 코드:
-  \`\`\`
-  (수정된 코드 — 바로 적용 가능하게)
-  \`\`\`
-
-### 발견된 이슈
-각 이슈별로:
+### 발견된 이슈 (최우선)
+코드를 직접 읽어 확인한 실제 문제점:
 **[이슈-N]** 제목
 - 위치: 파일경로:라인번호
 - 심각도: critical / high / medium / low
@@ -832,15 +821,34 @@ ${PREV_CONTEXT}
   \`\`\`
   (수정된 코드 예시)
   \`\`\`
+(이슈가 없으면 이번 라운드 신규 이슈 없음 으로 명시)
+
+### 다른 에이전트 제안 검토 (Round 2 이상)
+각 제안을 **긍정적 관점에서 먼저 검토**하세요. 좋은 제안이면 적극적으로 수용하고, 수용하되 조건이나 주의사항이 있을 경우에만 추가하세요:
+**[제안명]**: ✅ 수용 / ⚠️ 조건부 수용 / ❌ 반대(타당한 근거 필수)
+- 좋은 점: (이 제안이 왜 유효한지 인정)
+- 주의사항: (적용 시 추가로 고려할 점 — 없으면 생략)
 
 ### 이전 라운드 이슈 추적 (Round 2 이상)
 - [이슈명]: ✅ 해결 / ⚠️ 부분 해결 / ❌ 미해결 (코드 확인 결과)
 
+### 개선 제안 (이슈 기반만)
+발견된 이슈가 있는 경우에만 작성. 문제 없는 곳을 억지로 개선하지 마세요:
+**[개선-N]** 제목
+- 위치: 파일경로:라인번호
+- 현재 코드:
+  \`\`\`
+  (실제 코드 발췌)
+  \`\`\`
+- 개선된 코드:
+  \`\`\`
+  (수정된 코드 — 바로 적용 가능하게)
+  \`\`\`
+
 ### 전체 코드 평가
 - 품질 점수: X/10 (점수 기준: 7=기능 정상, 8=출시 가능, 9=우수, 10=완벽)
-  근거: (2~3줄)
+  근거: (2~3줄, 이전 라운드 대비 변화 이유 포함)
 - 릴리즈 가능: 가능 / 조건부 / 불가능
-- 잘 된 점: (코드에서 좋은 부분 1~2가지 인정)
 - 이번 라운드 개선 제안 적용 시 예상 점수: X/10"
 
     REVIEW_PROMPT="${REVIEW_PROMPT}${USER_FEEDBACK_SECTION}"
@@ -848,6 +856,239 @@ ${PREV_CONTEXT}
   done
   wait
   log_progress "[R${round}] 에이전트 분석 완료"
+
+  # ----------------------------------------------------------
+  # 2a-2. 저참여 이슈 강제 투표 (2라운드 이상 참여자 1명 이하)
+  # ----------------------------------------------------------
+  # 비전문가 에이전트도 기권 대신 코드를 직접 분석해 찬성/반대를 표명하도록 강제
+  if [ "$round" -ge 2 ]; then
+    prev=$((round - 1))
+    FORCE_ISSUES_TMP=$(mktemp)
+
+    python3 - << FORCE_PYEOF > "$FORCE_ISSUES_TMP" 2>/dev/null || echo "[]" > "$FORCE_ISSUES_TMP"
+import json, os
+
+session_dir = "$SESSION_DIR"
+prev_round  = $prev
+
+def load_json(path):
+    try:
+        with open(path) as f: return json.load(f)
+    except: return {}
+
+prev_votes = load_json(f"{session_dir}/round-{prev_round}/votes.json")
+all_issues = prev_votes.get("agreed_changes", []) + prev_votes.get("rejected_changes", [])
+
+result = []
+for issue in all_issues:
+    agree       = issue.get("votes", 0)
+    oppose      = issue.get("opposing_votes", 0)
+    participating = issue.get("participating_votes") or (agree + oppose)
+
+    if participating > 1:
+        continue  # 이미 충분한 참여
+
+    title     = issue.get("title", "")
+
+    def title_tokens(t):
+        import re
+        # 한글, 영숫자 토큰 (길이 3 이상) — 보조사/조사 등 단어는 제외
+        tokens = re.findall(r'[A-Za-z0-9]{3,}|[\uAC00-\uD7A3]{2,}', t.lower())
+        return set(tokens)
+
+    cur_tokens = title_tokens(title)
+
+    def title_match(t1_tokens, t2):
+        t2_tokens = title_tokens(t2)
+        if not t1_tokens or not t2_tokens:
+            return False
+        overlap = t1_tokens & t2_tokens
+        min_len = min(len(t1_tokens), len(t2_tokens))
+        return min_len > 0 and len(overlap) / min_len >= 0.4
+
+    # 이전-이전 라운드에서도 동일 이슈가 저참여였는지 확인 (2라운드 연속)
+    persistent = False
+    if prev_round >= 2:
+        pp_votes = load_json(f"{session_dir}/round-{prev_round-1}/votes.json")
+        pp_all   = pp_votes.get("agreed_changes", []) + pp_votes.get("rejected_changes", [])
+        for pp in pp_all:
+            if title_match(cur_tokens, pp.get("title", "")):
+                pp_agree  = pp.get("votes", 0)
+                pp_oppose = pp.get("opposing_votes", 0)
+                pp_part   = pp.get("participating_votes") or (pp_agree + pp_oppose)
+                if pp_part <= 1:
+                    persistent = True
+                    break
+    else:
+        persistent = True  # round 2: 이전 라운드(1)만 존재
+
+    if not persistent:
+        continue
+
+    abstaining = [av["agent"] for av in issue.get("agent_votes", []) if av.get("stance") == "abstain"]
+    if not abstaining:
+        continue
+
+    result.append({
+        "title":             title,
+        "description":       issue.get("description", ""),
+        "severity":          issue.get("severity", "medium"),
+        "file":              issue.get("file", ""),
+        "why_critical":      issue.get("why_critical", ""),
+        "abstaining_agents": abstaining,
+    })
+
+print(json.dumps(result, ensure_ascii=False))
+FORCE_PYEOF
+
+    FORCE_ISSUE_COUNT=$(python3 -c "import json,sys; print(len(json.load(sys.stdin)))" < "$FORCE_ISSUES_TMP" 2>/dev/null || echo "0")
+
+    if [ "$FORCE_ISSUE_COUNT" -gt 0 ]; then
+      log_progress "[R${round}] ⚠️ 저참여 이슈 ${FORCE_ISSUE_COUNT}개 — 기권 에이전트 강제 분석 시작"
+
+      for id in "${CR_AGENT_IDS[@]}"; do
+        NAME=$(get_agent_field "$id" "name")
+        ROLE=$(get_agent_field "$id" "role")
+        EXPERTISE=$(get_agent_field "$id" "expertise")
+
+        # 이 에이전트가 기권한 이슈 목록
+        MY_FORCE_TMP=$(mktemp)
+        python3 -c "
+import json, sys
+agent_name = '$NAME'
+all_issues = json.load(open('$FORCE_ISSUES_TMP'))
+my = [i for i in all_issues if agent_name in i.get('abstaining_agents', [])]
+print(json.dumps(my, ensure_ascii=False))
+" > "$MY_FORCE_TMP" 2>/dev/null || echo "[]" > "$MY_FORCE_TMP"
+
+        MY_FORCE_COUNT=$(python3 -c "import json,sys; print(len(json.load(open('$MY_FORCE_TMP'))))" 2>/dev/null || echo "0")
+
+        if [ "$MY_FORCE_COUNT" -eq 0 ]; then
+          rm -f "$MY_FORCE_TMP"; continue
+        fi
+
+        ISSUE_LIST=$(python3 -c "
+import json
+issues = json.load(open('$MY_FORCE_TMP'))
+lines = []
+for i, issue in enumerate(issues, 1):
+    lines.append(f'이슈 {i}: [{issue[\"severity\"].upper()}] {issue[\"title\"]}')
+    lines.append(f'  파일: {issue.get(\"file\", \"?\")}'[:120])
+    lines.append(f'  설명: {issue.get(\"description\", \"\")}'[:200])
+    lines.append(f'  중요도: {issue.get(\"why_critical\", \"\")}'[:200])
+    lines.append('')
+print('\n'.join(lines))
+" 2>/dev/null)
+
+        (
+          FORCED_PROMPT="당신은 ${NAME}입니다.
+역할: ${ROLE}
+전문 역량: ${EXPERTISE}
+
+[긴급 강제 투표 요청]
+아래 이슈들은 2라운드 이상 전문가 1명만 언급하여 채택/기각이 결정되지 못한 중요 이슈입니다.
+당신의 전문 영역이 아니더라도, 직접 코드를 읽어 분석하고 반드시 찬성 또는 반대 입장을 표명해야 합니다.
+기권은 허용되지 않습니다 — 치명적인 문제가 장기간 방치되는 것을 막기 위해 모든 에이전트의 참여가 필요합니다.
+
+프로젝트 코드 위치: ${CODE_DIR}
+
+=== 강제 분석 대상 이슈 ===
+${ISSUE_LIST}
+
+각 이슈에 대해 수행:
+1. Read/Grep으로 해당 파일의 실제 코드를 직접 확인
+2. 이슈가 실제로 존재하는지, 수정이 필요한지 판단
+3. ✅ 찬성 또는 ❌ 반대를 반드시 선택 (기권 불가)
+
+## [강제 투표 결과] ${NAME}
+
+### 이슈 N: [이슈 제목]
+코드 확인:
+\`\`\`
+(직접 읽은 코드 핵심 부분)
+\`\`\`
+판단: ✅ 찬성 — 이유: (1-2문장)
+또는
+판단: ❌ 반대 — 이유: (1-2문장)"
+
+          LOG="$LOG_DIR/${LOG_PREFIX}-${id}.log"
+          OUTPUT="$SESSION_DIR/round-${round}/${id}.md"
+          provider=$(resolve_agent_provider "$id")
+
+          {
+            echo ""
+            echo "---"
+            echo "## [강제 투표] ${NAME}"
+            echo ""
+          } >> "$OUTPUT"
+
+          force_result=""
+          case "$provider" in
+            "claude")
+              ftmp=$(mktemp)
+              if (cd "$PROJECT_DIR" && CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN" \
+                  "$CLAUDE_BIN" --output-format stream-json --verbose -p "$FORCED_PROMPT") \
+                  2>> "$LOG" > "$ftmp"; then
+                force_result=$(python3 -c "
+import json, sys
+data = sys.stdin.read().strip()
+for line in reversed(data.split('\n')):
+    line = line.strip()
+    if not line: continue
+    try:
+        obj = json.loads(line)
+        if obj.get('type') == 'result' and 'result' in obj:
+            print(obj['result']); exit(0)
+    except: pass
+texts = []
+for line in data.split('\n'):
+    try:
+        obj = json.loads(line.strip())
+        if obj.get('type') == 'assistant':
+            for block in obj.get('message', {}).get('content', []):
+                if block.get('type') == 'text' and block.get('text','').strip():
+                    texts.append(block['text'])
+    except: pass
+if texts: print('\n'.join(texts))
+" < "$ftmp" 2>/dev/null)
+              fi
+              rm -f "$ftmp"
+              ;;
+            "gemini"|"gemini-flash"|"gemini-pro")
+              _model="gemini-2.0-flash"
+              [ "$provider" = "gemini-pro" ] && _model="gemini-1.5-pro"
+              _ctx=$(collect_code_context)
+              force_result=$(call_gemini "${_ctx}\n\n---\n${FORCED_PROMPT}" "$LOG" "$_model")
+              ;;
+            "gpt4o-mini"|"gpt4o"|"openai")
+              _model="gpt-4o-mini"
+              [ "$provider" = "gpt4o" ] && _model="gpt-4o"
+              _ctx=$(collect_code_context)
+              force_result=$(call_openai "${_ctx}\n\n---\n${FORCED_PROMPT}" "$LOG" "$_model")
+              ;;
+            "gemini-cli")
+              force_result=$(call_gemini_cli "$FORCED_PROMPT" "$LOG" "$PROJECT_DIR")
+              ;;
+            "codex-cli")
+              force_result=$(call_codex_cli "$FORCED_PROMPT" "$LOG" "$PROJECT_DIR")
+              ;;
+          esac
+
+          if [ -n "$force_result" ]; then
+            echo "$force_result" >> "$OUTPUT"
+            echo "[$(date +%H:%M:%S)] [R${round}] ${id} 강제 투표 완료 ✓" >> "$LOG"
+          else
+            echo "*(강제 투표 분석 실패)*" >> "$OUTPUT"
+            echo "[$(date +%H:%M:%S)] [R${round}] ${id} 강제 투표 실패" >> "$LOG"
+          fi
+        ) &
+        rm -f "$MY_FORCE_TMP"
+      done
+      wait
+      log_progress "[R${round}] 강제 투표 완료"
+    fi
+    rm -f "$FORCE_ISSUES_TMP"
+  fi
 
   # ----------------------------------------------------------
   # 2b. 투표 집계
@@ -868,10 +1109,22 @@ ${content}
 
   VOTE_PROMPT="당신은 코드 리뷰 투표 집계 전문가입니다. 한국어로 응답하세요.
 
-총 에이전트: ${AGENT_COUNT_ACTUAL}명 | 과반수 기준: ${MAJORITY}명 이상
+총 에이전트: ${AGENT_COUNT_ACTUAL}명
 이전 라운드 품질 점수: ${ROUND_PREV_SCORE}/10
 
-점수 기준 (반드시 이 루브릭으로 평가):
+## 투표 규칙 (반드시 준수)
+각 에이전트는 이슈별로 세 가지 입장 중 하나입니다:
+- **agree(찬성)**: 이슈를 명시적으로 언급하고 수정 필요하다고 판단
+- **oppose(반대)**: 이슈에 명시적으로 반대 의견을 표명
+- **abstain(기권)**: 이슈를 전혀 언급하지 않은 에이전트 (해당 도메인 전문가가 아니므로 의사결정 불가)
+
+채택 기준: **참여 에이전트(agree+oppose) 중 과반수 이상이 찬성**
+- 참여 에이전트 = agree 수 + oppose 수 (abstain 제외)
+- 참여 에이전트가 0명이면 기각
+- agree > oppose이면 채택 (예: 2찬성 0반대 5기권 → 참여2명 중 2찬성 → 채택)
+- agree <= oppose이면 기각
+
+## 점수 기준 (반드시 이 루브릭으로 평가):
 - 5점: 기본 기능만 동작, 다수의 심각한 문제
 - 6점: 동작하지만 중요한 개선 필요
 - 7점: 기능 정상, 일부 개선 권장
@@ -883,16 +1136,16 @@ ${content}
 ${ALL_REVIEWS}
 
 ${AGENT_COUNT_ACTUAL}개 리뷰에서:
-1. 같은 또는 유사한 이슈/개선사항을 언급한 에이전트 수를 집계하세요
-2. ${MAJORITY}명 이상 동의한 변경사항을 채택 목록에 포함하세요
-3. 미달인 것은 기각 목록에 포함하세요
-4. overall_quality_score는 위 루브릭 기준으로 공정하게 평가하세요
+1. 모든 이슈/개선사항을 식별하고, 각 에이전트의 입장을 agree/oppose/abstain으로 분류
+2. 참여 에이전트(agree+oppose) 중 agree가 더 많으면 채택 목록에 포함
+3. 나머지는 기각 목록에 포함
+4. agent_votes에는 전체 에이전트(${AGENT_COUNT_ACTUAL}명)를 반드시 모두 포함할 것
+5. overall_quality_score는 위 루브릭 기준으로 공정하게 평가하세요
    (이전 점수 ${ROUND_PREV_SCORE}에서 이번에 적용된 개선사항이 반영된 점수)
 
 다음 JSON 형식으로만 응답하세요 (마크다운 코드블록 사용 가능):
 {
   \"total_agents\": ${AGENT_COUNT_ACTUAL},
-  \"majority_threshold\": ${MAJORITY},
   \"agreed_changes\": [
     {
       \"id\": \"change-1\",
@@ -900,13 +1153,37 @@ ${AGENT_COUNT_ACTUAL}개 리뷰에서:
       \"file\": \"lib/main.dart\",
       \"description\": \"구체적인 변경 내용\",
       \"reason\": \"왜 필요한가\",
-      \"votes\": 4,
+      \"votes\": 2,
+      \"opposing_votes\": 0,
+      \"abstain_votes\": 5,
+      \"participating_votes\": 2,
       \"severity\": \"high\",
-      \"supporters\": [\"에이전트명1\", \"에이전트명2\"]
+      \"why_critical\": \"왜 중요한지 1-2문장\",
+      \"proposer\": \"제안한 에이전트명\",
+      \"supporters\": [\"에이전트명1\", \"에이전트명2\"],
+      \"agent_votes\": [
+        {\"agent\": \"에이전트명\", \"stance\": \"agree\", \"reason\": \"한 줄 이유\"},
+        {\"agent\": \"에이전트명\", \"stance\": \"abstain\", \"reason\": \"언급 없음\"},
+        {\"agent\": \"에이전트명\", \"stance\": \"oppose\", \"reason\": \"한 줄 이유\"}
+      ]
     }
   ],
   \"rejected_changes\": [
-    {\"title\": \"기각된 변경\", \"votes\": 1, \"reason\": \"과반수 미달\"}
+    {
+      \"title\": \"기각된 변경\",
+      \"votes\": 0,
+      \"opposing_votes\": 1,
+      \"abstain_votes\": 6,
+      \"participating_votes\": 1,
+      \"proposer\": \"제안한 에이전트명\",
+      \"severity\": \"low\",
+      \"why_critical\": \"왜 제안됐는지 1-2문장\",
+      \"reason\": \"기각 이유 (반대 우세 또는 참여자 없음)\",
+      \"agent_votes\": [
+        {\"agent\": \"에이전트명\", \"stance\": \"abstain\", \"reason\": \"언급 없음\"},
+        {\"agent\": \"에이전트명\", \"stance\": \"oppose\", \"reason\": \"한 줄 이유\"}
+      ]
+    }
   ],
   \"overall_quality_score\": 7.5,
   \"prev_quality_score\": ${ROUND_PREV_SCORE},
@@ -916,7 +1193,7 @@ ${AGENT_COUNT_ACTUAL}개 리뷰에서:
 }"
 
   VOTE_RAW=$(CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN" \
-    "$CLAUDE_BIN" -p "$VOTE_PROMPT" 2>>"$LOG_DIR/${LOG_PREFIX}-voter.log")
+    "$CLAUDE_BIN" -p "$VOTE_PROMPT" 2>>"$LOG_DIR/${LOG_PREFIX}-voter.log") || true
   VOTES_JSON=$(echo "$VOTE_RAW" | extract_json)
   VOTES_VALID=$(python3 -c "
 import json, sys
@@ -1084,64 +1361,73 @@ ${APPLIED_SUMMARY}
   log_progress "[R${round}] 코드 리뷰 완료"
 
   # ----------------------------------------------------------
-  # 2e. 수렴 확인
+  # 2e. 수렴 확인 (votes.json 기반 — Claude 호출 없이 즉시 판단)
   # ----------------------------------------------------------
   log_progress "[R${round}] 수렴 확인 중..."
 
-  ALL_OPINIONS=""
-  for id in "${CR_AGENT_IDS[@]}"; do
-    NAME=$(get_agent_field "$id" "name")
-    tail_content=$(tail -20 "$SESSION_DIR/round-${round}/${id}.md" 2>/dev/null || echo "(없음)")
-    ALL_OPINIONS+="${NAME}: ${tail_content}
----
-"
-  done
+  SESSION_DIR="$SESSION_DIR" ROUND_NUM="$round" TOTAL_ROUNDS="$TOTAL_ROUNDS" \
+  python3 - << 'CONV_PYEOF' > "$SESSION_DIR/round-${round}/convergence.json"
+import json, os, sys
 
-  REVIEWER_TAIL=$(tail -40 "$SESSION_DIR/round-${round}/code-reviewer.md" 2>/dev/null || echo "(없음)")
-  VOTES_BRIEF=$(python3 -c "
-import json
-with open('$SESSION_DIR/round-${round}/votes.json') as f: d = json.load(f)
-print(f'품질 {d.get(\"overall_quality_score\",0)}/10, 릴리즈={d.get(\"release_ready\",False)}, 채택={len(d.get(\"agreed_changes\",[]))}')
-" 2>/dev/null || echo "")
+session_dir = os.environ.get('SESSION_DIR', '')
+round_num   = int(os.environ.get('ROUND_NUM', '0'))
+total       = int(os.environ.get('TOTAL_ROUNDS', '0'))
 
-  CONVERGENCE_PROMPT="당신은 코드 리뷰 수렴 판정자입니다. 한국어로 응답하세요.
+def load_json(path):
+    try:
+        with open(path) as f: return json.load(f)
+    except: return {}
 
-현재 라운드: ${round}/${TOTAL_ROUNDS}
-${VOTES_BRIEF}
+votes = load_json(f'{session_dir}/round-{round_num}/votes.json')
+q           = float(votes.get('overall_quality_score') or 0)
+_pq         = votes.get('prev_quality_score')
+prev_q      = float(_pq) if _pq is not None else q
+_sc         = votes.get('score_change')
+score_change= float(_sc) if _sc is not None else 0.0
+release_ready = bool(votes.get('release_ready', False))
+agreed      = votes.get('agreed_changes', [])
+rejected    = votes.get('rejected_changes', [])
 
-에이전트 최종 의견:
-${ALL_OPINIONS}
+# 이전 2라운드 연속 정체 감지
+stagnant_rounds = 0
+for r in range(round_num - 1, max(0, round_num - 3), -1):
+    pv = load_json(f'{session_dir}/round-{r}/votes.json')
+    if len(pv.get('agreed_changes', [])) == 0:
+        stagnant_rounds += 1
+    else:
+        break
 
-코드 리뷰어:
-${REVIEWER_TAIL}
+converged = False
+reason    = ""
 
-수렴 판정 기준 (다음 중 하나라도 충족하면 converged: true):
-1. quality_score >= 8.0 (출시 가능 수준)
-2. 모든 에이전트가 critical 이슈 없음 + release_ready: true
-3. 이번 라운드에서 새로운 critical/high 이슈가 발견되지 않고 이전 대비 개선된 경우
+if q >= 8.0:
+    converged = True
+    reason = f"품질 점수 {q}/10 달성 — 출시 가능 수준"
+elif release_ready and q >= 7.5:
+    converged = True
+    reason = f"릴리즈 준비 완료 (품질 {q}/10)"
+elif stagnant_rounds >= 2 and abs(score_change) < 0.1:
+    converged = True
+    reason = f"정체로 인한 종료 — {stagnant_rounds}라운드 연속 변경 없음 (품질 {q}/10)"
+elif round_num >= total:
+    converged = True
+    reason = f"최대 라운드 도달 ({total}라운드, 품질 {q}/10)"
+else:
+    reason = f"계속 진행 (품질 {q}/10, 이전 대비 {score_change:+.1f})"
 
-비수렴 기준:
-- quality_score < 7.0 이거나
-- 미해결 critical 이슈가 2개 이상 남아있는 경우
+convergence_rate = round(min(1.0, q / 10.0), 2)
+top_issues = [r['title'] for r in rejected[:5]]
 
-(참고: high 이슈가 있어도 quality_score >= 8.0이면 수렴 가능)
-
-JSON으로만 응답:
-{
-  \"converged\": false,
-  \"convergence_rate\": 0.6,
-  \"release_ready\": false,
-  \"quality_score\": 7.0,
-  \"remaining_critical_issues\": [\"이슈1\"],
-  \"consensus_summary\": \"2~3문장 요약\"
-}"
-
-  CONV_RAW=$(CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN" \
-    "$CLAUDE_BIN" -p "$CONVERGENCE_PROMPT" 2>>"$LOG_DIR/${LOG_PREFIX}-convergence.log")
-  CONV_JSON=$(echo "$CONV_RAW" | extract_json)
-  [ "$CONV_JSON" = "{}" ] && CONV_JSON="{\"converged\":false,\"convergence_rate\":0,\"release_ready\":false,\"quality_score\":5,\"remaining_critical_issues\":[],\"consensus_summary\":\"수렴 확인 실패\"}"
-
-  echo "$CONV_JSON" > "$SESSION_DIR/round-${round}/convergence.json"
+result = {
+    "converged": converged,
+    "convergence_rate": convergence_rate,
+    "release_ready": release_ready,
+    "quality_score": q,
+    "remaining_critical_issues": top_issues,
+    "consensus_summary": reason,
+}
+print(json.dumps(result, ensure_ascii=False, indent=2))
+CONV_PYEOF
 
   python3 - << PYEOF
 import json
@@ -1164,6 +1450,22 @@ try:
     print('true' if d.get('converged', False) else 'false')
 except: print('false')
 " 2>/dev/null)
+
+  # 코드 레벨 stagnation 감지: LLM 판단과 무관하게 강제 종료
+  # 채택 변경 0건 + 이전 점수와 동일하면 더 이상 토론해도 의미 없음
+  if [ "$AGREED_COUNT" -eq 0 ] && [ "$round" -gt 1 ]; then
+    CURR_SCORE=$(python3 -c "
+import json
+try:
+    d = json.load(open('$SESSION_DIR/round-${round}/votes.json'))
+    print(f'{d.get(\"overall_quality_score\", 0):.1f}')
+except: print('0')
+" 2>/dev/null || echo "0")
+    if [ "$CURR_SCORE" = "$ROUND_PREV_SCORE" ]; then
+      log_progress "[R${round}] ⚠️ 정체 감지 — 변경 0건, 점수 동일(${CURR_SCORE}) → 조기 종료"
+      CONVERGED_VAL="true"
+    fi
+  fi
 
   log_progress "[R${round}] 수렴: ${CONVERGED_VAL}"
 

@@ -8,7 +8,7 @@
 <style>
   :root {
     --bg: #0f172a; --card: #1e293b; --border: #334155;
-    --text: #e2e8f0; --muted: #94a3b8; --accent: #06b6d4;
+    --text: #e2e8f0; --muted: #94a3b8; --accent: #06b6d4; --teal: #14b8a6;
     --purple: #8b5cf6; --green: #22c55e; --red: #ef4444;
     --yellow: #fbbf24; --orange: #f97316;
   }
@@ -21,6 +21,35 @@
   .header .sub { color: var(--muted); font-size: 13px; margin-left: auto; }
   .header .nav-link { color: var(--muted); font-size: 13px; text-decoration: none; padding: 6px 12px; border: 1px solid var(--border); border-radius: 8px; transition: color 0.15s, border-color 0.15s; }
   .header .nav-link:hover { color: var(--accent); border-color: var(--accent); }
+
+  /* Provider Status Panel */
+  .provider-btn { background: none; border: 1px solid var(--border); color: var(--muted); font-size: 13px; padding: 6px 12px; border-radius: 8px; cursor: pointer; transition: all 0.15s; display: flex; align-items: center; gap: 6px; }
+  .provider-btn:hover { color: var(--accent); border-color: var(--accent); }
+  .provider-btn .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); flex-shrink: 0; }
+  .provider-btn .dot.ok { background: #22c55e; }
+  .provider-btn .dot.warn { background: #f59e0b; }
+  .provider-btn .dot.err { background: #ef4444; }
+
+  .provider-panel { position: fixed; top: 60px; right: 16px; z-index: 999; background: var(--card); border: 1px solid var(--border); border-radius: 14px; width: 340px; box-shadow: 0 8px 32px rgba(0,0,0,0.4); display: none; }
+  .provider-panel.open { display: block; }
+  .provider-panel-head { padding: 14px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+  .provider-panel-head span { font-size: 13px; font-weight: 700; color: var(--accent); letter-spacing: 0.04em; text-transform: uppercase; }
+  .provider-panel-head button { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 16px; padding: 0; line-height: 1; }
+  .provider-panel-head button:hover { color: var(--text); }
+  .provider-row { padding: 12px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: flex-start; gap: 10px; }
+  .provider-row:last-child { border-bottom: none; }
+  .provider-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; margin-top: 4px; }
+  .provider-dot.ok { background: #22c55e; }
+  .provider-dot.warn { background: #f59e0b; }
+  .provider-dot.err { background: #ef4444; }
+  .provider-dot.off { background: #6b7280; }
+  .provider-info { flex: 1; min-width: 0; }
+  .provider-name { font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 2px; }
+  .provider-detail { font-size: 11px; color: var(--muted); line-height: 1.5; }
+  .provider-detail strong { color: var(--text); }
+  .provider-panel-footer { padding: 10px 16px; font-size: 11px; color: var(--muted); text-align: right; border-top: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+  .provider-refresh { background: none; border: 1px solid var(--border); color: var(--muted); font-size: 11px; padding: 3px 8px; border-radius: 6px; cursor: pointer; transition: all 0.15s; }
+  .provider-refresh:hover { color: var(--accent); border-color: var(--accent); }
 
   .container { max-width: 1200px; margin: 0 auto; padding: 24px; }
 
@@ -248,6 +277,38 @@
   .change-title { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
   .change-meta { font-size: 11px; color: var(--muted); display: flex; gap: 10px; }
 
+  /* Vote Analysis */
+  .vote-analysis { display: flex; flex-direction: column; gap: 12px; padding: 16px; }
+  .vote-overview { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 4px; }
+  .vo-stat { background: rgba(255,255,255,0.04); border-radius: 10px; padding: 12px; text-align: center; }
+  .vo-val { font-size: 24px; font-weight: 800; }
+  .vo-label { font-size: 11px; color: var(--muted); margin-top: 3px; }
+  .vote-section-title { font-size: 12px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; margin: 8px 0 6px; }
+  .issue-card { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+  .issue-card.sev-critical { border-left: 3px solid #ef4444; }
+  .issue-card.sev-high { border-left: 3px solid #f97316; }
+  .issue-card.sev-medium { border-left: 3px solid #eab308; }
+  .issue-card.sev-low { border-left: 3px solid #6b7280; }
+  .issue-header { display: flex; align-items: center; gap: 8px; padding: 10px 14px; cursor: pointer; user-select: none; }
+  .issue-header:hover { background: rgba(255,255,255,0.03); }
+  .sev-badge { font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px; flex-shrink: 0; }
+  .sev-badge.sev-critical { background: rgba(239,68,68,0.2); color: #ef4444; }
+  .sev-badge.sev-high { background: rgba(249,115,22,0.2); color: #f97316; }
+  .sev-badge.sev-medium { background: rgba(234,179,8,0.2); color: #eab308; }
+  .sev-badge.sev-low { background: rgba(107,114,128,0.2); color: #9ca3af; }
+  .issue-title-text { flex: 1; font-size: 13px; font-weight: 600; color: var(--text); min-width: 0; }
+  .vote-tally { font-size: 12px; color: var(--muted); flex-shrink: 0; white-space: nowrap; }
+  .issue-body { padding: 0 14px 12px; display: none; }
+  .issue-body.open { display: block; }
+  .issue-why { font-size: 12px; color: var(--muted); line-height: 1.6; padding: 8px 0; border-bottom: 1px solid var(--border); margin-bottom: 8px; }
+  .issue-proposer { font-size: 11px; color: #6b7280; margin-bottom: 4px; }
+  .av-grid { display: flex; flex-direction: column; gap: 4px; }
+  .av-row { display: grid; grid-template-columns: 20px 140px 1fr; gap: 8px; align-items: baseline; font-size: 11px; padding: 3px 0; }
+  .av-icon { text-align: center; font-size: 13px; }
+  .av-agent { color: var(--text); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .av-reason { color: var(--muted); line-height: 1.4; }
+  .toggle-icon { font-size: 10px; color: var(--muted); flex-shrink: 0; transition: transform 0.2s; }
+
   /* Convergence card */
   .conv-card { padding: 14px 16px; border-radius: 10px; border: 1px solid var(--border); margin-bottom: 12px; }
   .conv-card.converged { border-color: var(--green); background: rgba(34,197,94,0.05); }
@@ -438,10 +499,27 @@
 <div class="header">
   <span class="icon">🔍</span>
   <h1>Code Review</h1>
-  <div style="margin-left:auto;display:flex;gap:8px;">
+  <div style="margin-left:auto;display:flex;gap:8px;align-items:center;">
+    <button class="provider-btn" id="providerBtn" onclick="toggleProviderPanel()">
+      <span class="dot" id="providerDot"></span>
+      AI 사용량
+    </button>
     <a href="/" class="nav-link">🏴 토론</a>
     <a href="/code-review" class="nav-link" style="color:var(--accent);border-color:var(--accent);">🔍 코드 리뷰</a>
     <a href="/task" class="nav-link">🔧 작업 파이프라인</a>
+  </div>
+</div>
+
+<!-- Provider Status Panel -->
+<div class="provider-panel" id="providerPanel">
+  <div class="provider-panel-head">
+    <span>📊 AI Provider 상태</span>
+    <button onclick="toggleProviderPanel()">✕</button>
+  </div>
+  <div id="providerRows"><div style="padding:16px;color:var(--muted);font-size:13px;text-align:center;">로딩 중...</div></div>
+  <div class="provider-panel-footer">
+    <button class="provider-refresh" onclick="loadProviderStatus()">↻ 새로고침</button>
+    <span id="providerCheckedAt"></span>
   </div>
 </div>
 
@@ -976,6 +1054,125 @@ function toggleRound(sectionId) {
   section.classList.toggle('open');
 }
 
+function toggleIssueCard(id) {
+  const body = document.getElementById(id);
+  const icon = document.getElementById('ti-' + id);
+  if (!body) return;
+  const isOpen = body.classList.toggle('open');
+  if (icon) icon.style.transform = isOpen ? 'rotate(180deg)' : '';
+}
+
+function buildIssueCard(change, type, idx, totalAgents) {
+  const sev = change.severity || (type === 'agreed' ? 'medium' : 'low');
+  const agentVotes = change.agent_votes || [];
+  const supporters = change.supporters || [];
+  const hasDetail = agentVotes.length > 0 || change.why_critical || change.proposer || change.description;
+  const cardId = 'ic-' + type + '-' + idx + '-' + Math.random().toString(36).slice(2, 7);
+
+  // 참여 기반 투표 표시: "찬성/참여표 (기권N)" — participating_votes 있으면 사용, 없으면 전체 기준 fallback
+  const agreeCount = change.votes || (type === 'agreed' ? supporters.length : 0);
+  const participatingVotes = change.participating_votes != null
+    ? change.participating_votes
+    : (agentVotes.filter(v => v.stance !== 'abstain').length || totalAgents || null);
+  const abstainCount = change.abstain_votes != null
+    ? change.abstain_votes
+    : agentVotes.filter(v => v.stance === 'abstain').length;
+  const tallyText = participatingVotes != null
+    ? `${agreeCount}/${participatingVotes}표${abstainCount > 0 ? ` (기권${abstainCount})` : ''}`
+    : `${agreeCount}표`;
+
+  const header = `<div class="issue-header" onclick="toggleIssueCard('${cardId}')" ${!hasDetail ? 'style="cursor:default"' : ''}>
+    <span class="sev-badge sev-${sev}">${sev.toUpperCase()}</span>
+    <span class="issue-title-text">${esc(change.title || '')}</span>
+    <span class="vote-tally">${tallyText}</span>
+    ${hasDetail ? '<span class="toggle-icon" id="ti-' + cardId + '">▼</span>' : ''}
+  </div>`;
+
+  if (!hasDetail) {
+    return `<div class="issue-card sev-${sev}">${header}</div>`;
+  }
+
+  let bodyContent = '';
+  if (change.proposer) {
+    bodyContent += `<div class="issue-proposer">💡 제안: <strong>${esc(change.proposer)}</strong></div>`;
+  }
+  if (change.why_critical) {
+    bodyContent += `<div class="issue-why">${esc(change.why_critical)}</div>`;
+  } else if (change.description) {
+    bodyContent += `<div class="issue-why">${esc(change.description)}</div>`;
+  } else if (change.reason) {
+    bodyContent += `<div class="issue-why" style="color:#6b7280">${esc(change.reason)}</div>`;
+  }
+
+  if (agentVotes.length > 0) {
+    // abstain은 맨 아래로 정렬 (agree → oppose → abstain)
+    const sorted = [...agentVotes].sort((a, b) => {
+      const order = { agree: 0, oppose: 1, abstain: 2 };
+      return (order[a.stance] ?? 3) - (order[b.stance] ?? 3);
+    });
+    const rows = sorted.map(av => {
+      const icon = av.stance === 'agree' ? '✅' : av.stance === 'oppose' ? '❌' : '⚪';
+      const stanceColor = av.stance === 'agree' ? 'var(--green)' : av.stance === 'oppose' ? 'var(--red)' : 'var(--muted)';
+      const isAbstain = av.stance === 'abstain';
+      return `<div class="av-row" style="${isAbstain ? 'opacity:0.45' : ''}">
+        <span class="av-icon">${icon}</span>
+        <span class="av-agent" style="color:${stanceColor}">${esc(av.agent || '')}</span>
+        <span class="av-reason">${esc(av.reason || '')}</span>
+      </div>`;
+    }).join('');
+    const participateLabel = participatingVotes != null
+      ? `에이전트 투표 (참여 ${participatingVotes}명 / 기권 ${abstainCount}명)`
+      : '에이전트 투표';
+    bodyContent += `<div style="font-size:11px;font-weight:600;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:0.04em">${participateLabel}</div><div class="av-grid">${rows}</div>`;
+  } else if (supporters.length > 0) {
+    bodyContent += `<div style="font-size:11px;color:var(--muted)">✅ 찬성: ${supporters.map(s => esc(s)).join(', ')}</div>`;
+  }
+
+  return `<div class="issue-card sev-${sev}">${header}<div class="issue-body" id="${cardId}">${bodyContent}</div></div>`;
+}
+
+function buildVotesHTML(votes, totalAgents) {
+  if (!votes) return '<div class="empty" style="padding:24px">투표 데이터 없음</div>';
+
+  const agreed = votes.agreed_changes || [];
+  const rejected = votes.rejected_changes || [];
+  const qs = votes.overall_quality_score;
+  const scoreColor = qs >= 8 ? 'var(--green)' : qs >= 7 ? 'var(--accent)' : qs >= 6 ? '#f59e0b' : 'var(--red)';
+
+  // 이슈당 평균 기권 수 (새 스키마에 abstain_votes 있을 때만 표시)
+  const allChanges = [...agreed, ...rejected];
+  const hasAbstainData = allChanges.some(c => c.abstain_votes != null);
+  const avgAbstain = hasAbstainData && allChanges.length
+    ? Math.round(allChanges.reduce((s, c) => s + (c.abstain_votes || 0), 0) / allChanges.length)
+    : null;
+
+  const overview = `<div class="vote-overview">
+    <div class="vo-stat"><div class="vo-val" style="color:${scoreColor}">${qs || '?'}</div><div class="vo-label">품질 점수 / 10</div></div>
+    <div class="vo-stat"><div class="vo-val" style="color:var(--green)">${agreed.length}</div><div class="vo-label">채택 변경</div></div>
+    <div class="vo-stat"><div class="vo-val" style="color:var(--muted)">${rejected.length}</div><div class="vo-label">기각 변경</div></div>
+    <div class="vo-stat"><div class="vo-val">${votes.release_ready ? '✅' : '❌'}</div><div class="vo-label">릴리즈 가능</div></div>
+  </div>
+  ${avgAbstain != null ? `<div style="font-size:11px;color:var(--muted);padding:4px 2px;margin-top:2px">⚪ 이슈당 평균 기권 ${avgAbstain}명 — 전문 영역 외 에이전트는 기권 처리, <strong style="color:var(--text)">참여자 기준 과반수</strong>로 채택 결정</div>` : ''}`;
+
+  const summary = votes.summary
+    ? `<div style="font-size:12px;color:var(--muted);padding:8px 12px;background:rgba(255,255,255,0.03);border-radius:8px;line-height:1.6">${esc(votes.summary)}</div>`
+    : '';
+
+  let agreedHTML = '';
+  if (agreed.length) {
+    agreedHTML = `<div class="vote-section-title" style="color:var(--green)">✅ 채택된 변경사항 (${agreed.length}건)</div>` +
+      agreed.map((c, i) => buildIssueCard(c, 'agreed', i, totalAgents)).join('');
+  }
+
+  let rejectedHTML = '';
+  if (rejected.length) {
+    rejectedHTML = `<div class="vote-section-title" style="color:var(--muted)">❌ 기각된 변경사항 (${rejected.length}건)</div>` +
+      rejected.map((c, i) => buildIssueCard(c, 'rejected', i, totalAgents)).join('');
+  }
+
+  return `<div class="vote-analysis">${overview}${summary}${agreedHTML}${rejectedHTML}</div>`;
+}
+
 function buildRoundHTML(r, votes, conv, convRate, isConverged, roundFiles, session) {
   const panelId = (name) => `r${r}-${name}`;
 
@@ -1032,44 +1229,7 @@ function buildRoundHTML(r, votes, conv, convRate, isConverged, roundFiles, sessi
   </div>`;
 
   // Votes content
-  const agreedChanges = votes?.agreed_changes || [];
-  const rejectedChanges = votes?.rejected_changes || [];
-  const votesHTML = `<div class="vote-card">
-    <h4>투표 결과</h4>
-    <div class="vote-stats">
-      <div class="vote-stat">
-        <div class="vote-stat-val" style="color:var(--accent)">${votes?.overall_quality_score || '?'}</div>
-        <div class="vote-stat-label">품질 점수 /10</div>
-      </div>
-      <div class="vote-stat">
-        <div class="vote-stat-val" style="color:var(--green)">${agreedChanges.length}</div>
-        <div class="vote-stat-label">채택 변경</div>
-      </div>
-      <div class="vote-stat">
-        <div class="vote-stat-val" style="color:var(--muted)">${rejectedChanges.length}</div>
-        <div class="vote-stat-label">기각 변경</div>
-      </div>
-      <div class="vote-stat">
-        <div class="vote-stat-val" style="color:${votes?.release_ready ? 'var(--green)' : 'var(--red)'}">${votes?.release_ready ? '✅' : '❌'}</div>
-        <div class="vote-stat-label">릴리즈 가능</div>
-      </div>
-    </div>
-    ${agreedChanges.length ? `
-    <div style="font-size:12px;font-weight:700;color:var(--green);margin-bottom:8px">✅ 채택 변경사항</div>
-    <div class="change-list">${agreedChanges.map(c => `
-      <div class="change-item severity-${c.severity || 'medium'}">
-        <div class="change-title">${esc(c.title || '')}</div>
-        <div class="change-meta">
-          <span>📄 ${esc(c.file || '?')}</span>
-          <span>👍 ${c.votes || 0}표</span>
-          <span style="color:var(--orange)">${(c.severity || '').toUpperCase()}</span>
-        </div>
-        <div style="font-size:11px;color:var(--muted);margin-top:4px">${esc(c.description || '')}</div>
-      </div>`).join('')}</div>` : '<div style="font-size:12px;color:var(--muted);padding:8px 0">과반수 동의 변경사항 없음</div>'}
-    ${rejectedChanges.length ? `
-    <div style="font-size:12px;font-weight:700;color:var(--muted);margin-top:12px;margin-bottom:6px">❌ 기각 변경사항</div>
-    ${rejectedChanges.map(r => `<div style="font-size:12px;color:var(--muted);padding:4px 0">• ${esc(r.title || '')} (${r.votes || 0}표)</div>`).join('')}` : ''}
-  </div>`;
+  const votesHTML = buildVotesHTML(votes, agentIds.length);
 
   // Applied changes
   const applyContent = roundFiles['apply-changes.md'] || '';
@@ -1103,7 +1263,7 @@ function buildRoundHTML(r, votes, conv, convRate, isConverged, roundFiles, sessi
     <div class="round-badges">
       ${votes ? `<span class="badge badge-gray">품질 ${votes.overall_quality_score || '?'}/10</span>` : ''}
       ${votes?.release_ready ? '<span class="badge badge-converged">릴리즈 가능</span>' : ''}
-      ${agreedChanges.length ? `<span class="badge badge-running">변경 ${agreedChanges.length}건</span>` : ''}
+      ${(votes?.agreed_changes?.length) ? `<span class="badge badge-running">변경 ${votes.agreed_changes.length}건</span>` : ''}
     </div>
   </div>
   <div class="sub-tabs">
@@ -1403,7 +1563,7 @@ function renderFileTree(session) {
     if (b === 'ROOT') return 1;
     if (a === 'FINAL') return -1;
     if (b === 'FINAL') return 1;
-    return a.localeCompare(b);
+    return a.localeCompare(b, undefined, { numeric: true });
   });
 
   tree.innerHTML = sectionOrder.map(section => {
@@ -1548,6 +1708,117 @@ async function deleteFeedback(idx) {
     await loadFeedback();
   } catch {}
 }
+
+// ── Provider Status ────────────────────────────────────────────
+let providerPanelOpen = false;
+
+function toggleProviderPanel() {
+  providerPanelOpen = !providerPanelOpen;
+  document.getElementById('providerPanel').classList.toggle('open', providerPanelOpen);
+  if (providerPanelOpen) loadProviderStatus();
+}
+
+document.addEventListener('click', e => {
+  if (providerPanelOpen && !e.target.closest('#providerPanel') && !e.target.closest('#providerBtn')) {
+    providerPanelOpen = false;
+    document.getElementById('providerPanel').classList.remove('open');
+  }
+});
+
+async function loadProviderStatus() {
+  try {
+    const data = await fetch('/api/provider-status').then(r => r.json());
+    renderProviderStatus(data);
+  } catch {
+    document.getElementById('providerRows').innerHTML =
+      '<div style="padding:16px;color:var(--muted);font-size:13px;text-align:center;">불러오기 실패</div>';
+  }
+}
+
+function renderProviderStatus(data) {
+  const providers = [
+    { key: 'claude', icon: '🤖' },
+    { key: 'gemini_cli', icon: '💎' },
+    { key: 'gemini_api', icon: '💎' },
+    { key: 'codex_cli', icon: '⚡' },
+    { key: 'openai_api', icon: '🧠' },
+  ];
+
+  const hasErr = providers.some(p => { const s = data[p.key]?.status; return s === 'quota_exhausted' || s === 'rate_limited'; });
+  const allOff = providers.every(p => !data[p.key]?.available);
+  const dot = document.getElementById('providerDot');
+  dot.className = 'dot ' + (allOff ? '' : hasErr ? 'warn' : 'ok');
+
+  // 구독 참고 단가
+  const SUBSCRIPTION = {
+    claude:      { plan: 'Max $100/월', color: '#22c55e' },
+    gemini_cli:  { plan: 'Google AI Premium $19.99/월 포함', color: '#94a3b8' },
+    gemini_api:  { plan: 'Flash: $0.075/1M입력 · $0.30/1M출력', color: '#94a3b8' },
+    codex_cli:   { plan: 'ChatGPT Plus $20/월 포함', color: '#94a3b8' },
+    openai_api:  { plan: 'GPT-4o: $2.50/1M입력 · $10/1M출력', color: '#94a3b8' },
+  };
+
+  const rows = providers.map(({ key, icon }) => {
+    const p = data[key];
+    if (!p) return '';
+    const sub = SUBSCRIPTION[key];
+    const dotClass = !p.available ? 'off' : p.status === 'ok' || p.status === 'configured' ? 'ok' :
+                     p.status === 'quota_exhausted' || p.status === 'rate_limited' ? 'warn' : 'err';
+    const statusText = {
+      ok: '✅ 정상', configured: '✅ 설정됨', not_found: '⚫ 미설치',
+      no_key: '⚫ API 키 없음', quota_exhausted: '⚠️ 쿼터 소진', rate_limited: '⚠️ 속도 제한'
+    }[p.status] || p.status;
+
+    let costHtml = '';
+    let detail = '';
+
+    if (key === 'claude' && p.available && p.cost_usd > 0) {
+      const from = p.log_date_from ? p.log_date_from.slice(5).replace('-','/') : '?';
+      const to = p.log_date_to ? p.log_date_to.slice(5).replace('-','/') : '?';
+      const planColor = p.monthly_estimate > 200 ? '#ef4444' : p.monthly_estimate > 100 ? '#f59e0b' : '#22c55e';
+      costHtml = `
+        <div style="margin-top:6px;padding:8px 10px;background:rgba(255,255,255,0.04);border-radius:8px;font-size:11px;">
+          <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+            <span style="color:#94a3b8">API 환산 비용 (${from}~${to}, ${p.log_days}일)</span>
+            <span style="color:#e2e8f0;font-weight:600">$${p.cost_usd.toFixed(2)}</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+            <span style="color:#94a3b8">일 평균</span>
+            <span style="color:#e2e8f0">$${p.cost_per_day.toFixed(2)}/일</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
+            <span style="color:#94a3b8">월 환산 추정</span>
+            <span style="color:${planColor};font-weight:700">~$${p.monthly_estimate}/월</span>
+          </div>
+          <div style="border-top:1px solid rgba(255,255,255,0.08);padding-top:5px;color:#6b7280;">
+            참고: <span style="color:${sub.color}">${sub.plan}</span> · 구독 사용 시 실제 과금 없음
+          </div>
+        </div>`;
+    } else if (key === 'gemini_cli' && p.status === 'quota_exhausted') {
+      detail = `리셋까지: <strong>${p.reset_in || '?'}</strong>`;
+    } else if (!p.available) {
+      detail = key.includes('api') ? 'API 키 미설정 — .env에 추가' : 'CLI 미설치';
+    }
+
+    const subNote = !costHtml && p.available && sub ? `<div style="font-size:10px;color:#4b5563;margin-top:2px;">${sub.plan}</div>` : '';
+
+    return `<div class="provider-row">
+      <div class="provider-dot ${dotClass}"></div>
+      <div class="provider-info" style="min-width:0;flex:1;">
+        <div class="provider-name">${icon} ${p.label}</div>
+        <div class="provider-detail">${statusText}${detail ? ' &nbsp;·&nbsp; ' + detail : ''}</div>
+        ${subNote}${costHtml}
+      </div>
+    </div>`;
+  }).join('');
+
+  document.getElementById('providerRows').innerHTML = rows;
+  const t = new Date(data._checked_at);
+  document.getElementById('providerCheckedAt').textContent = `${t.getHours()}:${String(t.getMinutes()).padStart(2,'0')} 기준`;
+}
+
+// 페이지 로드 시 백그라운드에서 상태 조회 (dot 업데이트용)
+loadProviderStatus();
 </script>
 </body>
 </html>

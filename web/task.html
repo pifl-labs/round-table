@@ -198,6 +198,34 @@
 
   /* Tooltip */
   .tip { font-size: 11px; color: var(--muted); margin-top: 4px; }
+
+  /* Provider Status Panel */
+  .provider-btn { background: none; border: 1px solid var(--border); color: var(--muted); font-size: 13px; padding: 6px 12px; border-radius: 8px; cursor: pointer; transition: all 0.15s; display: flex; align-items: center; gap: 6px; }
+  .provider-btn:hover { color: var(--accent); border-color: var(--accent); }
+  .provider-btn .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); flex-shrink: 0; }
+  .provider-btn .dot.ok { background: #22c55e; }
+  .provider-btn .dot.warn { background: #f59e0b; }
+  .provider-btn .dot.err { background: #ef4444; }
+  .provider-panel { position: fixed; top: 60px; right: 16px; z-index: 999; background: var(--card); border: 1px solid var(--border); border-radius: 14px; width: 340px; box-shadow: 0 8px 32px rgba(0,0,0,0.4); display: none; }
+  .provider-panel.open { display: block; }
+  .provider-panel-head { padding: 14px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+  .provider-panel-head span { font-size: 13px; font-weight: 700; color: var(--accent); letter-spacing: 0.04em; text-transform: uppercase; }
+  .provider-panel-head button { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 16px; padding: 0; line-height: 1; }
+  .provider-panel-head button:hover { color: var(--text); }
+  .provider-row { padding: 12px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: flex-start; gap: 10px; }
+  .provider-row:last-child { border-bottom: none; }
+  .provider-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; margin-top: 4px; }
+  .provider-dot.ok { background: #22c55e; }
+  .provider-dot.warn { background: #f59e0b; }
+  .provider-dot.err { background: #ef4444; }
+  .provider-dot.off { background: #6b7280; }
+  .provider-info { flex: 1; min-width: 0; }
+  .provider-name { font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 2px; }
+  .provider-detail { font-size: 11px; color: var(--muted); line-height: 1.5; }
+  .provider-detail strong { color: var(--text); }
+  .provider-panel-footer { padding: 10px 16px; font-size: 11px; color: var(--muted); text-align: right; border-top: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+  .provider-refresh { background: none; border: 1px solid var(--border); color: var(--muted); font-size: 11px; padding: 3px 8px; border-radius: 6px; cursor: pointer; transition: all 0.15s; }
+  .provider-refresh:hover { color: var(--accent); border-color: var(--accent); }
 </style>
 </head>
 <body>
@@ -206,9 +234,26 @@
   <span class="icon">🔧</span>
   <h1>작업 파이프라인</h1>
   <div class="nav-links">
+    <button class="provider-btn" id="providerBtn" onclick="toggleProviderPanel()">
+      <span class="dot" id="providerDot"></span>
+      AI 사용량
+    </button>
     <a href="/" class="nav-link">🏴 토론</a>
     <a href="/code-review" class="nav-link">🔍 코드 리뷰</a>
     <a href="/task" class="nav-link active">🔧 작업 파이프라인</a>
+  </div>
+</div>
+
+<!-- Provider Status Panel -->
+<div class="provider-panel" id="providerPanel">
+  <div class="provider-panel-head">
+    <span>📊 AI Provider 상태</span>
+    <button onclick="toggleProviderPanel()">✕</button>
+  </div>
+  <div id="providerRows"><div style="padding:16px;color:var(--muted);font-size:13px;text-align:center;">로딩 중...</div></div>
+  <div class="provider-panel-footer">
+    <button class="provider-refresh" onclick="loadProviderStatus()">↻ 새로고침</button>
+    <span id="providerCheckedAt"></span>
   </div>
 </div>
 
@@ -859,6 +904,84 @@ setInterval(() => {
 }, 8000);
 
 init();
+
+// ── Provider Status ────────────────────────────────────────────
+let providerPanelOpen = false;
+
+function toggleProviderPanel() {
+  providerPanelOpen = !providerPanelOpen;
+  document.getElementById('providerPanel').classList.toggle('open', providerPanelOpen);
+  if (providerPanelOpen) loadProviderStatus();
+}
+
+document.addEventListener('click', e => {
+  if (providerPanelOpen && !e.target.closest('#providerPanel') && !e.target.closest('#providerBtn')) {
+    providerPanelOpen = false;
+    document.getElementById('providerPanel').classList.remove('open');
+  }
+});
+
+async function loadProviderStatus() {
+  try {
+    const data = await fetch('/api/provider-status').then(r => r.json());
+    renderProviderStatus(data);
+  } catch {
+    document.getElementById('providerRows').innerHTML =
+      '<div style="padding:16px;color:var(--muted);font-size:13px;text-align:center;">불러오기 실패</div>';
+  }
+}
+
+function renderProviderStatus(data) {
+  const providers = [
+    { key: 'claude', icon: '🤖' },
+    { key: 'gemini_cli', icon: '💎' },
+    { key: 'gemini_api', icon: '💎' },
+    { key: 'codex_cli', icon: '⚡' },
+    { key: 'openai_api', icon: '🧠' },
+  ];
+  const SUBSCRIPTION = {
+    claude:      { plan: 'Max $100/월', color: '#22c55e' },
+    gemini_cli:  { plan: 'Google AI Premium $19.99/월 포함', color: '#94a3b8' },
+    gemini_api:  { plan: 'Flash: $0.075/1M입력 · $0.30/1M출력', color: '#94a3b8' },
+    codex_cli:   { plan: 'ChatGPT Plus $20/월 포함', color: '#94a3b8' },
+    openai_api:  { plan: 'GPT-4o: $2.50/1M입력 · $10/1M출력', color: '#94a3b8' },
+  };
+  const hasErr = providers.some(p => { const s = data[p.key]?.status; return s === 'quota_exhausted' || s === 'rate_limited'; });
+  const allOff = providers.every(p => !data[p.key]?.available);
+  const dot = document.getElementById('providerDot');
+  dot.className = 'dot ' + (allOff ? '' : hasErr ? 'warn' : 'ok');
+  const rows = providers.map(({ key, icon }) => {
+    const p = data[key];
+    if (!p) return '';
+    const sub = SUBSCRIPTION[key];
+    const dotClass = !p.available ? 'off' : p.status === 'ok' || p.status === 'configured' ? 'ok' :
+                     p.status === 'quota_exhausted' || p.status === 'rate_limited' ? 'warn' : 'err';
+    const statusText = { ok: '✅ 정상', configured: '✅ 설정됨', not_found: '⚫ 미설치', no_key: '⚫ API 키 없음', quota_exhausted: '⚠️ 쿼터 소진', rate_limited: '⚠️ 속도 제한' }[p.status] || p.status;
+    let costHtml = '', detail = '';
+    if (key === 'claude' && p.available && p.cost_usd > 0) {
+      const from = p.log_date_from ? p.log_date_from.slice(5).replace('-','/') : '?';
+      const to = p.log_date_to ? p.log_date_to.slice(5).replace('-','/') : '?';
+      const planColor = p.monthly_estimate > 200 ? '#ef4444' : p.monthly_estimate > 100 ? '#f59e0b' : '#22c55e';
+      costHtml = `<div style="margin-top:6px;padding:8px 10px;background:rgba(255,255,255,0.04);border-radius:8px;font-size:11px;">
+        <div style="display:flex;justify-content:space-between;margin-bottom:4px;"><span style="color:#94a3b8">API 환산 비용 (${from}~${to}, ${p.log_days}일)</span><span style="color:#e2e8f0;font-weight:600">$${p.cost_usd.toFixed(2)}</span></div>
+        <div style="display:flex;justify-content:space-between;margin-bottom:4px;"><span style="color:#94a3b8">일 평균</span><span style="color:#e2e8f0">$${p.cost_per_day.toFixed(2)}/일</span></div>
+        <div style="display:flex;justify-content:space-between;margin-bottom:6px;"><span style="color:#94a3b8">월 환산 추정</span><span style="color:${planColor};font-weight:700">~$${p.monthly_estimate}/월</span></div>
+        <div style="border-top:1px solid rgba(255,255,255,0.08);padding-top:5px;color:#6b7280;">참고: <span style="color:${sub.color}">${sub.plan}</span> · 구독 사용 시 실제 과금 없음</div>
+      </div>`;
+    } else if (key === 'gemini_cli' && p.status === 'quota_exhausted') {
+      detail = `리셋까지: <strong>${p.reset_in || '?'}</strong>`;
+    } else if (!p.available) {
+      detail = key.includes('api') ? 'API 키 미설정 — .env에 추가' : 'CLI 미설치';
+    }
+    const subNote = !costHtml && p.available && sub ? `<div style="font-size:10px;color:#4b5563;margin-top:2px;">${sub.plan}</div>` : '';
+    return `<div class="provider-row"><div class="provider-dot ${dotClass}"></div><div class="provider-info" style="min-width:0;flex:1;"><div class="provider-name">${icon} ${p.label}</div><div class="provider-detail">${statusText}${detail ? ' &nbsp;·&nbsp; ' + detail : ''}</div>${subNote}${costHtml}</div></div>`;
+  }).join('');
+  document.getElementById('providerRows').innerHTML = rows;
+  const t = new Date(data._checked_at);
+  document.getElementById('providerCheckedAt').textContent = `${t.getHours()}:${String(t.getMinutes()).padStart(2,'0')} 기준`;
+}
+
+loadProviderStatus();
 </script>
 </body>
 </html>
