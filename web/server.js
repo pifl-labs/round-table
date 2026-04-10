@@ -279,6 +279,7 @@ function listSessions() {
   return readdirSync(SESSIONS_DIR)
     .filter((d) => {
       if (d === "code-review") return false; // code-review 세션은 별도 디렉토리
+      if (d === "tasks") return false; // task 세션은 별도 디렉토리
       try { return statSync(join(SESSIONS_DIR, d)).isDirectory(); } catch { return false; }
     })
     .sort()
@@ -451,10 +452,11 @@ function makeSessionId() {
   return `${now.getFullYear()}${p(now.getMonth() + 1)}${p(now.getDate())}_${p(now.getHours())}${p(now.getMinutes())}${p(now.getSeconds())}`;
 }
 
-function startCodeReview({ topic, context = "", rounds = 2, agentCount = 5, projectDir, aiProfile = "claude" }) {
+function startCodeReview({ topic, context = "", rounds = 2, agentCount = 5, targetQuality = 8.5, projectDir, aiProfile = "claude" }) {
   const dir = projectDir && existsSync(projectDir) ? projectDir : WORKSPACE_DIR;
   const r = Math.min(Math.max(parseInt(rounds) || 2, 1), 9);
   const n = Math.min(Math.max(parseInt(agentCount) || 5, 2), 12);
+  const tq = Math.min(Math.max(parseFloat(targetQuality) || 8.5, 7.0), 10.0);
 
   // 서버가 세션 디렉토리와 meta.json을 즉시 생성 (UI가 바로 표시할 수 있도록)
   const sessionId = makeSessionId();
@@ -466,6 +468,7 @@ function startCodeReview({ topic, context = "", rounds = 2, agentCount = 5, proj
     context,
     rounds: r,
     agent_count: n,
+    target_quality: tq,
     project_dir: dir,
     started_at: new Date().toISOString(),
     status: "generating-agents",
@@ -530,18 +533,29 @@ function streamCodeReviewLogs(res, sessionId) {
     "Access-Control-Allow-Origin": "*",
   });
 
+  // 동일 데이터 반복 전송 방지 — 변경분만 전송하여 클라이언트 깜박임 제거
+  let _prevLogs = '', _prevSession = '', _prevSessions = '';
+
   const sendLogs = () => {
-    const logs = getCodeReviewLogs(sessionId || "");
-    res.write(`data: ${JSON.stringify(logs)}\n\n`);
+    const data = JSON.stringify(getCodeReviewLogs(sessionId || ""));
+    if (data === _prevLogs) return;
+    _prevLogs = data;
+    res.write(`data: ${data}\n\n`);
   };
   const sendSession = () => {
     if (!sessionId) return;
     const session = getCodeReviewSession(sessionId);
-    if (session) res.write(`event: session\ndata: ${JSON.stringify(session)}\n\n`);
+    if (!session) return;
+    const data = JSON.stringify(session);
+    if (data === _prevSession) return;
+    _prevSession = data;
+    res.write(`event: session\ndata: ${data}\n\n`);
   };
   const sendSessions = () => {
-    const sessions = listCodeReviewSessions().slice(0, 5);
-    res.write(`event: sessions\ndata: ${JSON.stringify(sessions)}\n\n`);
+    const data = JSON.stringify(listCodeReviewSessions().slice(0, 5));
+    if (data === _prevSessions) return;
+    _prevSessions = data;
+    res.write(`event: sessions\ndata: ${data}\n\n`);
   };
 
   sendLogs();
@@ -1289,6 +1303,17 @@ const server = createServer((req, res) => {
       } catch(e) { return json({ error: e.message }, 400); }
     });
     return;
+  }
+
+  if (path.match(/^\/api\/session\/[^/]+$/) && req.method === "DELETE") {
+    const id = path.split("/")[3];
+    if (!id || !/^\d{8}_\d{6}$/.test(id)) return json({ error: "Invalid session id" }, 400);
+    const dir = join(SESSIONS_DIR, id);
+    if (!existsSync(dir)) return json({ error: "Not found" }, 404);
+    try {
+      rmSync(dir, { recursive: true, force: true });
+      return json({ deleted: true, id });
+    } catch (e) { return json({ error: e.message }, 500); }
   }
 
   if (path === "/api/agents") return json(listAgents());

@@ -83,6 +83,50 @@ done
 # ============================================================
 LOG_PREFIX="task-${SESSION_ID}"
 
+ensure_project_claudeignore() {
+  local dir="$1"
+  [ -f "$dir/.claudeignore" ] && return
+  cat > "$dir/.claudeignore" << 'IGNORE_EOF'
+# Round Table 자동 생성 — 토큰 절감을 위한 불필요 파일 제외
+build/
+.dart_tool/
+.pub-cache/
+.pub/
+node_modules/
+.npm/
+.gradle/
+.git/
+__pycache__/
+*.pyc
+*.pyo
+*.o
+*.a
+*.class
+coverage/
+dist/
+out/
+.DS_Store
+*.png
+*.jpg
+*.jpeg
+*.webp
+*.gif
+*.ico
+*.svg
+*.ttf
+*.otf
+*.woff
+*.woff2
+*.mp4
+*.mp3
+*.zip
+*.tar.gz
+*.tar
+*.pdf
+*.lock
+IGNORE_EOF
+}
+
 log_progress() { echo "[$(date +%H:%M:%S)] $*" | tee -a "$LOG_DIR/${LOG_PREFIX}-main.log"; }
 
 py_get() { python3 -c "import json; d=json.load(open('$SESSION_DIR/meta.json')); print(d.get('$1','$2'))" 2>/dev/null || echo "$2"; }
@@ -221,7 +265,7 @@ run_task_agent() {
   if [ "$ok" = false ]; then
     if (cd "$PROJECT_DIR" && \
         CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN" \
-        "$CLAUDE_BIN" --output-format json -p "$prompt") > "$tmp" 2>> "$log"; then
+        "$CLAUDE_BIN" --output-format json --tools "WebSearch,Read,Glob,Grep" -p "$prompt") > "$tmp" 2>> "$log"; then
       ok=true
       used_claude=true
     fi
@@ -255,6 +299,7 @@ if [ "$MODE" = "generate" ]; then
   AGENT_COUNT=$(py_get agent_count "5")
 
   log_progress "🔧 [generate] 작업 분석 + 파이프라인 설계 시작"
+  ensure_project_claudeignore "$PROJECT_DIR"
   log_progress "   작업: $TASK"
   log_progress "   프로젝트: $PROJECT_DIR"
   log_progress "   에이전트 수: $AGENT_COUNT"
@@ -309,7 +354,7 @@ output_type:
 }"
 
   PIPELINE_RAW=$(cd "$PROJECT_DIR" && CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN" \
-    "$CLAUDE_BIN" -p "$PIPELINE_PROMPT" 2>>"$LOG_DIR/${LOG_PREFIX}-generator.log")
+    "$CLAUDE_BIN" --tools "Read,Glob,Grep" -p "$PIPELINE_PROMPT" 2>>"$LOG_DIR/${LOG_PREFIX}-generator.log")
 
   PIPELINE_JSON=$(echo "$PIPELINE_RAW" | extract_json)
 

@@ -19,8 +19,10 @@
   .header h1 { font-size: 20px; }
   .header .icon { font-size: 28px; }
   .header .sub { color: var(--muted); font-size: 13px; margin-left: auto; }
+  .header .nav-links { margin-left: auto; display: flex; gap: 8px; align-items: center; }
   .header .nav-link { color: var(--muted); font-size: 13px; text-decoration: none; padding: 6px 12px; border: 1px solid var(--border); border-radius: 8px; transition: color 0.15s, border-color 0.15s; }
   .header .nav-link:hover { color: var(--accent); border-color: var(--accent); }
+  .header .nav-link.active { color: var(--accent); border-color: var(--accent); }
 
   /* Provider Status Panel */
   .provider-btn { background: none; border: 1px solid var(--border); color: var(--muted); font-size: 13px; padding: 6px 12px; border-radius: 8px; cursor: pointer; transition: all 0.15s; display: flex; align-items: center; gap: 6px; }
@@ -78,7 +80,7 @@
   .form-context textarea:focus { outline: none; border-color: var(--purple); }
   .form-context textarea::placeholder { color: var(--muted); }
 
-  .form-row3 { display: grid; grid-template-columns: 140px 120px 1fr; gap: 12px; margin-bottom: 16px; align-items: end; }
+  .form-row3 { display: grid; grid-template-columns: 140px 120px 120px 1fr; gap: 12px; margin-bottom: 16px; align-items: end; }
 
   /* AI Profile Selector */
   .ai-profile-section { margin-bottom: 20px; }
@@ -499,13 +501,13 @@
 <div class="header">
   <span class="icon">🔍</span>
   <h1>Code Review</h1>
-  <div style="margin-left:auto;display:flex;gap:8px;align-items:center;">
+  <div class="nav-links">
     <button class="provider-btn" id="providerBtn" onclick="toggleProviderPanel()">
       <span class="dot" id="providerDot"></span>
       AI 사용량
     </button>
     <a href="/" class="nav-link">🏴 토론</a>
-    <a href="/code-review" class="nav-link" style="color:var(--accent);border-color:var(--accent);">🔍 코드 리뷰</a>
+    <a href="/code-review" class="nav-link active">🔍 코드 리뷰</a>
     <a href="/task" class="nav-link">🔧 작업 파이프라인</a>
   </div>
 </div>
@@ -542,6 +544,10 @@
       <div class="field-group">
         <label>에이전트 수</label>
         <input type="number" id="agentCount" value="5" min="2" max="10">
+      </div>
+      <div class="field-group">
+        <label title="이 점수 도달 시 리뷰 종료">목표 점수</label>
+        <input type="number" id="targetQuality" value="8.5" min="7" max="10" step="0.5">
       </div>
       <div class="field-group">
         <label>프로젝트</label>
@@ -702,7 +708,7 @@ function renderSessionsList(sessions) {
     const date = s.started_at ? new Date(s.started_at).toLocaleString('ko') : '';
     const lang = s.language ? `<span>${s.language}</span>` : '';
     const rounds = s.current_round != null ? `<span>R${s.current_round}/${s.rounds || '?'}</span>` : '';
-    const quality = s.quality_score ? `<span>품질 ${s.quality_score}/10</span>` : '';
+    const quality = s.quality_score ? `<span>품질 ${s.quality_score}/${s.target_quality || 10}</span>` : '';
     return `<div class="session-card ${currentSessionId === s.id ? 'active' : ''}" onclick="openSession('${s.id}')">
       <div style="font-size:20px">🔍</div>
       <div class="session-meta">
@@ -735,6 +741,7 @@ async function startReview() {
   const context = document.getElementById('context').value.trim();
   const rounds = parseInt(document.getElementById('rounds').value) || 2;
   const agentCount = parseInt(document.getElementById('agentCount').value) || 5;
+  const targetQuality = parseFloat(document.getElementById('targetQuality').value) || 8.5;
   const projectDir = document.getElementById('project').value;
   const aiProfile = 'claude'; // 초기 fallback — 에이전트별 AI는 agents-ready 단계에서 선택
 
@@ -745,7 +752,7 @@ async function startReview() {
     const res = await fetch('/api/code-review/start', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ topic, context, rounds, agentCount, projectDir, aiProfile }),
+      body: JSON.stringify({ topic, context, rounds, agentCount, targetQuality, projectDir, aiProfile }),
     });
     if (res.ok) {
       const { sessionId } = await res.json();
@@ -802,7 +809,8 @@ function renderSessionDetail(session) {
   const rds = `<span class="badge badge-gray">R${session.current_round || 0}/${session.rounds || '?'}</span>`;
   const badge = statusBadge(session.status, session.converged);
   const qs = session.quality_score ? qualityBadge(session.quality_score) : '';
-  document.getElementById('detailMeta').innerHTML = `${badge}${lang}${framework}${rds}${qs}`;
+  const tq = session.target_quality ? `<span class="badge badge-gray" title="목표 품질 점수">목표 ${session.target_quality}/10</span>` : '';
+  document.getElementById('detailMeta').innerHTML = `${badge}${lang}${framework}${rds}${qs}${tq}`;
 
   // Detected issues
   const issues = session.detected_issues || [];
@@ -952,9 +960,10 @@ function renderSessionDetail(session) {
   const continueBanner = document.getElementById('continueBanner');
   if (session.status === 'completed') {
     const rounds = session.rounds || 0;
-    const qs = session.quality_score ? `품질 ${session.quality_score}/10 · ` : '';
+    const tq = session.target_quality || 10;
+    const qs = session.quality_score ? `품질 ${session.quality_score}/${tq} · ` : '';
     document.getElementById('continueBannerSub').textContent =
-      `${qs}${rounds}라운드 완료 — 미해결 이슈가 있다면 라운드를 추가하세요`;
+      `${qs}${rounds}라운드 완료 — 목표 점수(${tq})에 미달이라면 라운드를 추가하세요`;
     continueBanner.style.display = 'flex';
   } else {
     continueBanner.style.display = 'none';
@@ -1081,9 +1090,15 @@ function buildIssueCard(change, type, idx, totalAgents) {
     ? `${agreeCount}/${participatingVotes}표${abstainCount > 0 ? ` (기권${abstainCount})` : ''}`
     : `${agreeCount}표`;
 
+  const peerReviewBadge = change.peer_review_result === 'rejected_by_peer'
+    ? `<span style="font-size:10px;background:rgba(239,68,68,0.15);color:var(--red);border-radius:4px;padding:1px 6px;font-weight:600;margin-left:4px">동료검토↓</span>`
+    : change.peer_reviewed
+    ? `<span style="font-size:10px;background:rgba(20,184,166,0.12);color:var(--teal);border-radius:4px;padding:1px 6px;font-weight:600;margin-left:4px">동료검토↑</span>`
+    : '';
+
   const header = `<div class="issue-header" onclick="toggleIssueCard('${cardId}')" ${!hasDetail ? 'style="cursor:default"' : ''}>
     <span class="sev-badge sev-${sev}">${sev.toUpperCase()}</span>
-    <span class="issue-title-text">${esc(change.title || '')}</span>
+    <span class="issue-title-text">${esc(change.title || '')}${peerReviewBadge}</span>
     <span class="vote-tally">${tallyText}</span>
     ${hasDetail ? '<span class="toggle-icon" id="ti-' + cardId + '">▼</span>' : ''}
   </div>`;
@@ -1104,19 +1119,34 @@ function buildIssueCard(change, type, idx, totalAgents) {
     bodyContent += `<div class="issue-why" style="color:#6b7280">${esc(change.reason)}</div>`;
   }
 
+  // 동료 검토 배지
+  if (change.peer_reviewed) {
+    const prResult = change.peer_review_result;
+    const prSummary = change.peer_review_summary || '';
+    const prColor = prResult === 'confirmed' ? 'var(--teal)' : prResult === 'rejected_by_peer' ? 'var(--red)' : '#f59e0b';
+    const prLabel = prResult === 'confirmed' ? '동료 검토 확정' : prResult === 'rejected_by_peer' ? '동료 검토 기각' : '동료 검토 완료';
+    bodyContent += `<div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;padding:5px 10px;background:rgba(20,184,166,0.07);border:1px solid rgba(20,184,166,0.2);border-radius:6px">
+      <span style="font-size:11px;font-weight:700;color:${prColor};text-transform:uppercase;letter-spacing:0.04em">🔍 ${prLabel}</span>
+      ${prSummary ? `<span style="font-size:11px;color:var(--muted)">${esc(prSummary)}</span>` : ''}
+    </div>`;
+  }
+
   if (agentVotes.length > 0) {
-    // abstain은 맨 아래로 정렬 (agree → oppose → abstain)
+    // abstain은 맨 아래로 정렬 (agree → oppose → abstain), 동료검토는 agree/oppose 내에서 하단
     const sorted = [...agentVotes].sort((a, b) => {
       const order = { agree: 0, oppose: 1, abstain: 2 };
-      return (order[a.stance] ?? 3) - (order[b.stance] ?? 3);
+      const oa = (order[a.stance] ?? 3) * 10 + (a.peer_review ? 1 : 0);
+      const ob = (order[b.stance] ?? 3) * 10 + (b.peer_review ? 1 : 0);
+      return oa - ob;
     });
     const rows = sorted.map(av => {
       const icon = av.stance === 'agree' ? '✅' : av.stance === 'oppose' ? '❌' : '⚪';
       const stanceColor = av.stance === 'agree' ? 'var(--green)' : av.stance === 'oppose' ? 'var(--red)' : 'var(--muted)';
       const isAbstain = av.stance === 'abstain';
+      const peerBadge = av.peer_review ? `<span style="font-size:9px;background:rgba(20,184,166,0.15);color:var(--teal);border-radius:4px;padding:1px 5px;margin-left:4px;font-weight:600">검토</span>` : '';
       return `<div class="av-row" style="${isAbstain ? 'opacity:0.45' : ''}">
         <span class="av-icon">${icon}</span>
-        <span class="av-agent" style="color:${stanceColor}">${esc(av.agent || '')}</span>
+        <span class="av-agent" style="color:${stanceColor}">${esc(av.agent || '')}${peerBadge}</span>
         <span class="av-reason">${esc(av.reason || '')}</span>
       </div>`;
     }).join('');
@@ -1310,27 +1340,38 @@ function startSSE(sessionId) {
 
   eventSource = new EventSource(`/api/code-review/logs/stream?sessionId=${sessionId}`);
 
+  // 동일 데이터 재수신 시 재렌더링 방지 (깜박임 제거)
+  let _prevLogsData = '';
+  let _prevSessionData = '';
+  let _prevSessionsData = '';
+
   eventSource.onmessage = (e) => {
     if (currentSessionId !== sessionId) return;
+    if (e.data === _prevLogsData) return;
+    _prevLogsData = e.data;
     const logs = JSON.parse(e.data);
     renderLogs(logs);
   };
 
   eventSource.addEventListener('session', (e) => {
     if (currentSessionId !== sessionId) return;
+    if (e.data === _prevSessionData) return;
+    _prevSessionData = e.data;
     const session = JSON.parse(e.data);
     renderSessionDetail(session);
     // Refresh file tree if that tab is active
     if (activeTab === 'files') renderFileTree(session);
-    // Update list
-    loadSessions().then(sessions => {
-      if (session.status === 'completed' && eventSource) {
-        eventSource.close(); eventSource = null;
-      }
-    });
+    // completed 세션은 SSE 즉시 종료
+    if (session.status === 'completed' && eventSource) {
+      eventSource.close(); eventSource = null;
+    } else {
+      loadSessions();
+    }
   });
 
   eventSource.addEventListener('sessions', (e) => {
+    if (e.data === _prevSessionsData) return;
+    _prevSessionsData = e.data;
     const sessions = JSON.parse(e.data);
     renderSessionsList(sessions);
   });

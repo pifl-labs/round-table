@@ -1,0 +1,16 @@
+# Round Table — Claude 컨텍스트 제외 목록
+# 이 파일에 나열된 경로는 Claude가 파일 탐색/컨텍스트 로딩 시 무시합니다.
+
+# 세션 출력물 (토론 결과, 리뷰 결과) — 코드가 아님, 용량 큼 (~15MB)
+sessions/
+
+# 로그 파일 — 운영 로그, 코드 리뷰와 무관 (~44MB)
+logs/
+
+# 웹 UI 의존성
+web/node_modules/
+
+# 임시/캐시 파일
+*.tmp
+*.cache
+.extract_json.py

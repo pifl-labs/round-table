@@ -101,10 +101,13 @@
   /* Sessions List */
   .section-title { font-size: 12px; font-weight: 700; color: var(--muted); letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 14px; }
   .sessions { display: grid; gap: 10px; margin-bottom: 24px; }
-  .session-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px; cursor: pointer; transition: border-color 0.15s, background 0.15s; }
+  .session-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px; cursor: pointer; transition: border-color 0.15s, background 0.15s; position: relative; }
   .session-card:hover { border-color: var(--accent); background: rgba(30,41,59,0.8); }
-  .session-card .topic { font-weight: 600; margin-bottom: 8px; font-size: 15px; line-height: 1.4; }
+  .session-card .topic { font-weight: 600; margin-bottom: 8px; font-size: 15px; line-height: 1.4; padding-right: 28px; }
   .session-card .meta { font-size: 12px; color: var(--muted); display: flex; gap: 14px; flex-wrap: wrap; align-items: center; }
+  .session-card .delete-btn { position: absolute; top: 12px; right: 12px; background: none; border: none; color: var(--muted); cursor: pointer; font-size: 16px; padding: 2px 6px; border-radius: 6px; line-height: 1; opacity: 0; transition: opacity 0.15s, color 0.15s; }
+  .session-card:hover .delete-btn { opacity: 1; }
+  .session-card .delete-btn:hover { color: var(--red); background: rgba(239,68,68,0.1); }
 
   .status { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 600; }
   .status .dot { width: 7px; height: 7px; border-radius: 50%; }
@@ -220,6 +223,10 @@
   .feedback-item-del:hover { color: var(--red); }
 
   /* Provider Status Panel */
+  .header .nav-links { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+  .header .nav-link { color: var(--muted); font-size: 13px; text-decoration: none; padding: 6px 12px; border: 1px solid var(--border); border-radius: 8px; transition: color 0.15s, border-color 0.15s; }
+  .header .nav-link:hover { color: var(--accent); border-color: var(--accent); }
+  .header .nav-link.active { color: var(--accent); border-color: var(--accent); }
   .provider-btn { background: none; border: 1px solid var(--border); color: var(--muted); font-size: 13px; padding: 6px 12px; border-radius: 8px; cursor: pointer; transition: all 0.15s; display: flex; align-items: center; gap: 6px; }
   .provider-btn:hover { color: var(--accent); border-color: var(--accent); }
   .provider-btn .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); flex-shrink: 0; }
@@ -254,14 +261,14 @@
   <span class="flag">🏴‍☠️</span>
   <h1>Round Table</h1>
   <span class="sub">Claude Multi-Agent Debate System</span>
-  <div style="margin-left:auto;display:flex;gap:8px;align-items:center;">
+  <div class="nav-links">
     <button class="provider-btn" id="providerBtn" onclick="toggleProviderPanel()">
       <span class="dot" id="providerDot"></span>
       AI 사용량
     </button>
-    <a href="/" style="color:var(--accent);font-size:13px;text-decoration:none;padding:6px 12px;border:1px solid var(--accent);border-radius:8px;">🏴 토론</a>
-    <a href="/code-review" style="color:var(--muted);font-size:13px;text-decoration:none;padding:6px 12px;border:1px solid var(--border);border-radius:8px;">🔍 코드 리뷰</a>
-    <a href="/task" style="color:var(--muted);font-size:13px;text-decoration:none;padding:6px 12px;border:1px solid var(--border);border-radius:8px;">🔧 작업 파이프라인</a>
+    <a href="/" class="nav-link active">🏴 토론</a>
+    <a href="/code-review" class="nav-link">🔍 코드 리뷰</a>
+    <a href="/task" class="nav-link">🔧 작업 파이프라인</a>
   </div>
 </div>
 
@@ -449,6 +456,7 @@ async function loadSessions() {
   }
   el.innerHTML = sessions.map(s => `
     <div class="session-card" onclick="showDetail('${s.id}')">
+      <button class="delete-btn" onclick="event.stopPropagation(); deleteSession('${s.id}')" title="세션 삭제">×</button>
       <div class="topic">${escapeHtml((s.topic || 'Unknown').split('\n')[0])}</div>
       <div class="meta">
         <span class="status ${s.status}"><span class="dot"></span>${s.status}</span>
@@ -463,6 +471,21 @@ async function loadSessions() {
       </div>
     </div>
   `).join('');
+}
+
+async function deleteSession(id) {
+  if (!confirm(`세션 "${id}"를 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.`)) return;
+  try {
+    const res = await fetch(`/api/session/${id}`, { method: 'DELETE' });
+    const data = await res.json();
+    if (data.deleted) {
+      await loadSessions();
+    } else {
+      alert('삭제 실패: ' + (data.error || '알 수 없는 오류'));
+    }
+  } catch (e) {
+    alert('삭제 중 오류가 발생했습니다: ' + e.message);
+  }
 }
 
 // ============================================================

@@ -57,6 +57,7 @@ PROJECT_DIR=$(py_get project_dir "$(pwd)")
 CODE_DIR=$(py_get code_dir "$PROJECT_DIR")  # 실제 코드 위치 (project_dir과 다를 수 있음)
 AGENT_COUNT=$(py_get agent_count "5")
 TOTAL_ROUNDS=$(py_get rounds "2")
+TARGET_QUALITY=$(py_get target_quality "8.5")
 
 # ============================================================
 # 디렉토리 & 환경
@@ -303,6 +304,50 @@ except: print('')
 # ============================================================
 LOG_PREFIX="cr-${SESSION_ID}"
 
+ensure_project_claudeignore() {
+  local dir="$1"
+  [ -f "$dir/.claudeignore" ] && return
+  cat > "$dir/.claudeignore" << 'IGNORE_EOF'
+# Round Table 자동 생성 — 토큰 절감을 위한 불필요 파일 제외
+build/
+.dart_tool/
+.pub-cache/
+.pub/
+node_modules/
+.npm/
+.gradle/
+.git/
+__pycache__/
+*.pyc
+*.pyo
+*.o
+*.a
+*.class
+coverage/
+dist/
+out/
+.DS_Store
+*.png
+*.jpg
+*.jpeg
+*.webp
+*.gif
+*.ico
+*.svg
+*.ttf
+*.otf
+*.woff
+*.woff2
+*.mp4
+*.mp3
+*.zip
+*.tar.gz
+*.tar
+*.pdf
+*.lock
+IGNORE_EOF
+}
+
 log_progress() { echo "[$(date +%H:%M:%S)] $*" | tee -a "$LOG_DIR/${LOG_PREFIX}-main.log"; }
 
 update_meta() {
@@ -381,7 +426,7 @@ run_cr_agent() {
       # stream-json: tool call·파일 읽기·생각 과정을 로그에 스트리밍
       # tee로 log에 실시간 기록하면서 result만 추출
       if (cd "$PROJECT_DIR" && CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN" \
-          "$CLAUDE_BIN" --output-format stream-json --verbose -p "$prompt") \
+          "$CLAUDE_BIN" --output-format stream-json --verbose --max-budget-usd 2 --tools "Read,Glob,Grep" -p "$prompt") \
           2>> "$log" | tee -a "$log" > "$tmp"; then
         result=$(python3 -c "
 import json, sys
@@ -490,6 +535,7 @@ ${prompt}"
 # ============================================================
 if [ "$MODE" = "generate" ]; then
   log_progress "🔍 [generate] 에이전트 생성 시작"
+  ensure_project_claudeignore "$PROJECT_DIR"
   log_progress "   목표: $TOPIC"
   log_progress "   프로젝트: $PROJECT_DIR"
   log_progress "   에이전트 수: $AGENT_COUNT"
@@ -546,7 +592,7 @@ PROMPT_EOF
 )
 
   AGENT_RAW=$(cd "$PROJECT_DIR" && CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN" \
-    "$CLAUDE_BIN" -p "$AGENT_GEN_PROMPT" 2>>"$LOG_DIR/${LOG_PREFIX}-generator.log")
+    "$CLAUDE_BIN" --tools "Read,Glob,Grep" -p "$AGENT_GEN_PROMPT" 2>>"$LOG_DIR/${LOG_PREFIX}-generator.log")
 
   AGENTS_JSON=$(echo "$AGENT_RAW" | extract_json)
 
@@ -658,6 +704,7 @@ with open('$SESSION_DIR/meta.json', 'w') as f: json.dump(d, f, ensure_ascii=Fals
 PYEOF
   log_progress "🔍 [run] 리뷰 시작: $TOPIC"
   log_progress "   프로젝트: $PROJECT_DIR | 라운드: $TOTAL_ROUNDS"
+  ensure_project_claudeignore "$PROJECT_DIR"
 fi
 
 if [ "$MODE" = "--continue" ]; then
@@ -799,7 +846,7 @@ ${PREV_CONTEXT}
 
 작업:
 1. Read/Glob/Grep으로 프로젝트 코드를 직접 확인하세요 — 코드의 현재 실제 상태를 파악하세요
-2. ${FOCUS} 관점에서 점수를 8.0 이상으로 올리기 위한 개선사항을 우선 파악하세요
+2. ${FOCUS} 관점에서 점수를 ${TARGET_QUALITY} 이상으로 올리기 위한 개선사항을 우선 파악하세요
 3. 모든 이슈에 수정 후 코드 예시를 반드시 포함하세요 (문제만 나열 금지)
 4. 이전 라운드 변경사항이 실제 반영되었는지 확인하고 결과를 명시하세요
 
@@ -1027,7 +1074,7 @@ ${ISSUE_LIST}
             "claude")
               ftmp=$(mktemp)
               if (cd "$PROJECT_DIR" && CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN" \
-                  "$CLAUDE_BIN" --output-format stream-json --verbose -p "$FORCED_PROMPT") \
+                  "$CLAUDE_BIN" --output-format stream-json --verbose --max-budget-usd 1 -p "$FORCED_PROMPT") \
                   2>> "$LOG" > "$ftmp"; then
                 force_result=$(python3 -c "
 import json, sys
@@ -1206,6 +1253,258 @@ except: print('fail')
   [ "$VOTES_VALID" != "ok" ] && VOTES_JSON="{\"agreed_changes\":[],\"rejected_changes\":[],\"overall_quality_score\":5,\"release_ready\":false,\"summary\":\"집계 실패\"}"
   echo "$VOTES_JSON" > "$SESSION_DIR/round-${round}/votes.json"
 
+  # ----------------------------------------------------------
+  # 2b-2. 솔로 투표 동료 검토 (critical/high, participating ≤ 1)
+  # 단 1명만 투표한 중요 이슈는 다른 에이전트의 빠른 검토를 거쳐
+  # 찬성/반대/중립 의견을 추가한 뒤 채택 여부를 재판정한다.
+  # ----------------------------------------------------------
+  SOLO_TMP=$(mktemp)
+  python3 -c "
+import json
+try:
+    with open('$SESSION_DIR/round-${round}/votes.json') as f: d = json.load(f)
+    result = []
+    for c in d.get('agreed_changes', []):
+        p = c.get('participating_votes') or (c.get('votes', 0) + c.get('opposing_votes', 0))
+        if p <= 1 and c.get('severity', '').lower() in ['critical', 'high']:
+            result.append(c)
+    print(json.dumps(result, ensure_ascii=False))
+except: print('[]')
+" > "$SOLO_TMP" 2>/dev/null || echo "[]" > "$SOLO_TMP"
+  SOLO_COUNT=$(python3 -c "import json; print(len(json.load(open('$SOLO_TMP'))))" 2>/dev/null || echo "0")
+
+  if [ "$SOLO_COUNT" -gt 0 ]; then
+    log_progress "[R${round}] 🔍 솔로 투표 ${SOLO_COUNT}개 (critical/high) — 동료 검토 시작"
+
+    for id in "${CR_AGENT_IDS[@]}"; do
+      NAME=$(get_agent_field "$id" "name")
+      ROLE=$(get_agent_field "$id" "role")
+      EXPERTISE=$(get_agent_field "$id" "expertise")
+
+      # 이 에이전트가 기권한 솔로 이슈만 추출
+      MY_SOLO_TMP=$(mktemp)
+      python3 -c "
+import json
+issues = json.load(open('$SOLO_TMP'))
+name = '$NAME'
+my = [c for c in issues
+      if any(av.get('agent') == name and av.get('stance') == 'abstain'
+             for av in c.get('agent_votes', []))]
+print(json.dumps(my, ensure_ascii=False))
+" > "$MY_SOLO_TMP" 2>/dev/null || echo "[]" > "$MY_SOLO_TMP"
+
+      MY_SOLO_COUNT=$(python3 -c "import json; print(len(json.load(open('$MY_SOLO_TMP'))))" 2>/dev/null || echo "0")
+
+      if [ "$MY_SOLO_COUNT" -eq 0 ]; then
+        rm -f "$MY_SOLO_TMP"; continue
+      fi
+
+      ISSUE_LIST=$(python3 -c "
+import json
+issues = json.load(open('$MY_SOLO_TMP'))
+lines = []
+for c in issues:
+    cid = c.get('id', c.get('title', '?'))
+    lines.append(f'ID: {cid} [{c.get(\"severity\",\"?\").upper()}] {c.get(\"title\",\"?\")}')
+    lines.append(f'  파일: {c.get(\"file\",\"?\")}')
+    lines.append(f'  설명: {c.get(\"description\",\"\")}')
+    lines.append(f'  제안 이유: {c.get(\"reason\",\"\")}')
+    if c.get('proposer'): lines.append(f'  제안자: {c[\"proposer\"]}')
+    lines.append('')
+print('\n'.join(lines))
+" 2>/dev/null)
+
+      PEER_LOG="$LOG_DIR/${LOG_PREFIX}-peer-${id}-r${round}.log"
+      PEER_OUT="$SESSION_DIR/round-${round}/peer-review-${id}.json"
+
+      (
+        PEER_PROMPT="당신은 ${NAME}입니다.
+역할: ${ROLE}
+전문 역량: ${EXPERTISE}
+
+[동료 검토 요청 — 솔로 투표 이슈]
+아래 이슈들은 이번 라운드에서 1명의 에이전트만 투표한 critical/high 이슈입니다.
+충분한 합의 없이 코드에 적용되는 것을 방지하기 위해 간단한 검토를 요청합니다.
+당신의 전문 영역이 아니어도 코드를 직접 읽고 의견을 주세요.
+
+프로젝트 코드: ${CODE_DIR}
+
+=== 검토 대상 이슈 ===
+${ISSUE_LIST}
+
+각 이슈에 대해:
+1. 해당 파일을 Read로 읽어 실제 코드 확인
+2. 아래 중 하나로 판단:
+   - agree: 이슈가 실재하며 수정 필요
+   - oppose: 이슈가 없거나 수정 불필요/위험
+   - neutral: 코드를 읽었으나 해당 도메인 전문지식 부족으로 판단 불가
+
+다음 JSON으로만 응답 (마크다운 코드블록 가능):
+{
+  \"reviewer\": \"${NAME}\",
+  \"opinions\": [
+    {\"change_id\": \"이슈ID\", \"stance\": \"agree|oppose|neutral\", \"reason\": \"한 문장\"}
+  ]
+}"
+
+        peer_result=""
+        peer_provider=$(resolve_agent_provider "$id")
+
+        case "$peer_provider" in
+          "claude")
+            ptmp=$(mktemp)
+            if (cd "$PROJECT_DIR" && CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN" \
+                "$CLAUDE_BIN" --output-format stream-json --verbose --max-budget-usd 1 --tools "Read,Glob,Grep" -p "$PEER_PROMPT") \
+                2>>"$PEER_LOG" > "$ptmp"; then
+              peer_result=$(python3 -c "
+import json, sys
+data = sys.stdin.read().strip()
+for line in reversed(data.split('\n')):
+    line = line.strip()
+    if not line: continue
+    try:
+        obj = json.loads(line)
+        if obj.get('type') == 'result' and 'result' in obj:
+            print(obj['result']); exit(0)
+    except: pass
+texts = []
+for line in data.split('\n'):
+    try:
+        obj = json.loads(line.strip())
+        if obj.get('type') == 'assistant':
+            for block in obj.get('message', {}).get('content', []):
+                if block.get('type') == 'text' and block.get('text','').strip():
+                    texts.append(block['text'])
+    except: pass
+if texts: print('\n'.join(texts))
+" < "$ptmp" 2>/dev/null)
+            fi
+            rm -f "$ptmp"
+            ;;
+          "gemini"|"gemini-flash"|"gemini-pro")
+            _pmodel="gemini-2.0-flash"
+            [ "$peer_provider" = "gemini-pro" ] && _pmodel="gemini-1.5-pro"
+            _pctx=$(collect_code_context)
+            peer_result=$(call_gemini "${_pctx}\n\n---\n${PEER_PROMPT}" "$PEER_LOG" "$_pmodel")
+            ;;
+          "gpt4o-mini"|"gpt4o"|"openai")
+            _pmodel="gpt-4o-mini"
+            [ "$peer_provider" = "gpt4o" ] && _pmodel="gpt-4o"
+            _pctx=$(collect_code_context)
+            peer_result=$(call_openai "${_pctx}\n\n---\n${PEER_PROMPT}" "$PEER_LOG" "$_pmodel")
+            ;;
+          "gemini-cli")
+            peer_result=$(call_gemini_cli "$PEER_PROMPT" "$PEER_LOG" "$PROJECT_DIR")
+            ;;
+          "codex-cli")
+            peer_result=$(call_codex_cli "$PEER_PROMPT" "$PEER_LOG" "$PROJECT_DIR")
+            ;;
+        esac
+
+        if [ -n "$peer_result" ]; then
+          echo "$peer_result" | extract_json > "$PEER_OUT" 2>/dev/null || \
+            echo "{\"reviewer\":\"${NAME}\",\"opinions\":[]}" > "$PEER_OUT"
+        else
+          echo "{\"reviewer\":\"${NAME}\",\"opinions\":[]}" > "$PEER_OUT"
+        fi
+        echo "[$(date +%H:%M:%S)] [R${round}] peer-review ${id} 완료" >> "$PEER_LOG"
+        rm -f "$MY_SOLO_TMP"
+      ) &
+    done
+    wait
+    log_progress "[R${round}] 동료 검토 완료 — votes.json 업데이트"
+
+    # 동료 검토 의견을 votes.json에 병합하고 채택/기각 재판정
+    python3 -c "
+import json, glob, os
+
+round_dir = '$SESSION_DIR/round-${round}'
+votes_path = os.path.join(round_dir, 'votes.json')
+with open(votes_path) as f: votes = json.load(f)
+
+# 동료 검토 의견 수집: change_id → [opinions]
+peer_ops = {}
+for pf in glob.glob(os.path.join(round_dir, 'peer-review-*.json')):
+    try:
+        d = json.load(open(pf))
+        reviewer = d.get('reviewer', '?')
+        for op in d.get('opinions', []):
+            cid = op.get('change_id', '')
+            peer_ops.setdefault(cid, []).append({
+                'agent': reviewer,
+                'stance': op.get('stance', 'neutral'),
+                'reason': op.get('reason', ''),
+                'peer_review': True,
+            })
+    except: pass
+
+def find_ops(change):
+    cid   = change.get('id', '')
+    title = change.get('title', '')
+    if cid   in peer_ops: return peer_ops[cid]
+    if title in peer_ops: return peer_ops[title]
+    for key, ops in peer_ops.items():
+        if key and title and (key in title or title in key): return ops
+    return []
+
+new_agreed  = []
+new_rejected = list(votes.get('rejected_changes', []))
+pr_count = 0
+
+for change in votes.get('agreed_changes', []):
+    p = change.get('participating_votes') or (change.get('votes', 0) + change.get('opposing_votes', 0))
+    ops = find_ops(change) if p <= 1 else []
+    if not ops:
+        new_agreed.append(change); continue
+
+    extra_agree   = sum(1 for o in ops if o['stance'] == 'agree')
+    extra_oppose  = sum(1 for o in ops if o['stance'] == 'oppose')
+    extra_neutral = sum(1 for o in ops if o['stance'] == 'neutral')
+    pr_count += 1
+
+    change = dict(change)
+    change['votes']               = change.get('votes', 0) + extra_agree
+    change['opposing_votes']      = change.get('opposing_votes', 0) + extra_oppose
+    change['participating_votes'] = change['votes'] + change['opposing_votes']
+    change['abstain_votes']       = max(0, change.get('abstain_votes', 0) - extra_agree - extra_oppose - extra_neutral)
+    change['peer_reviewed']       = True
+    change['peer_review_summary'] = f'+{extra_agree}찬성 +{extra_oppose}반대 +{extra_neutral}중립'
+
+    agent_votes = list(change.get('agent_votes', []))
+    for op in ops:
+        if op['stance'] == 'neutral': continue
+        updated = False
+        for av in agent_votes:
+            if av.get('agent') == op['agent'] and av.get('stance') == 'abstain':
+                av.update({'stance': op['stance'], 'reason': op['reason'], 'peer_review': True})
+                updated = True; break
+        if not updated: agent_votes.append(op)
+    change['agent_votes'] = agent_votes
+
+    if change['votes'] > change['opposing_votes']:
+        change['peer_review_result'] = 'confirmed'
+        new_agreed.append(change)
+    else:
+        change['peer_review_result'] = 'rejected_by_peer'
+        change['reason'] = f'동료 검토 후 기각 — 찬성 {change[\"votes\"]} vs 반대 {change[\"opposing_votes\"]}'
+        new_rejected.append(change)
+
+votes['agreed_changes']   = new_agreed
+votes['rejected_changes'] = new_rejected
+if pr_count:
+    votes['peer_review_applied'] = True
+    votes['peer_review_count']   = pr_count
+
+with open(votes_path, 'w') as f: json.dump(votes, f, ensure_ascii=False, indent=2)
+confirmed = sum(1 for c in new_agreed  if c.get('peer_reviewed'))
+flipped   = sum(1 for c in new_rejected if c.get('peer_review_result') == 'rejected_by_peer')
+print(f'동료 검토 병합: {pr_count}건 검토 / {confirmed}건 확정 / {flipped}건 기각 전환')
+" 2>/dev/null || true
+
+    log_progress "[R${round}] 동료 검토 병합 완료"
+  fi
+  rm -f "$SOLO_TMP"
+
   python3 - << PYEOF
 import json
 with open('$SESSION_DIR/round-${round}/votes.json') as f: d = json.load(f)
@@ -1244,9 +1543,15 @@ print(len(d.get('agreed_changes', [])))
 import json
 with open('$SESSION_DIR/round-${round}/votes.json') as f: d = json.load(f)
 for i, c in enumerate(d.get('agreed_changes', []), 1):
+    p = c.get('participating_votes') or (c.get('votes', 0) + c.get('opposing_votes', 0))
+    if p <= 1:
+        conf = '⚠️ SOLO (전문가 1명만 투표 — 보수적 적용 필요)'
+    else:
+        conf = f'✅ 합의 ({p}명 참여)'
     print(f"변경 {i}: {c.get('title','')}")
     print(f"  파일: {c.get('file','?')}")
     print(f"  심각도: {c.get('severity','?')}")
+    print(f"  신뢰도: {conf}")
     print(f"  설명: {c.get('description','')}")
     print(f"  이유: {c.get('reason','')}")
     print()
@@ -1270,14 +1575,30 @@ PYEOF
 언어/프레임워크: ${LANGUAGE}
 
 다음 코드 변경사항을 실제 파일에 적용하세요.
-Read로 먼저 확인 → Edit/Write/MultiEdit으로 수정.
+각 파일을 Read로 먼저 읽은 뒤 → Edit/Write/MultiEdit으로 수정.
 
 === 적용할 변경사항 ===
 ${AGREED_DETAILS}
 
-주의:
-- 각 파일을 Read로 먼저 읽어 현재 내용 확인
-- 최소한의 변경만 적용 (불필요한 수정 금지)
+## 신뢰도별 적용 규칙
+
+### ✅ 합의 항목 (여러 에이전트 동의)
+- 일반적인 방식으로 적용
+
+### ⚠️ SOLO 항목 (전문가 1명만 투표)
+아래 규칙을 **반드시** 따르세요:
+1. **최소 변경**: 설명에 명시된 것만 정확히 적용 (로그 1줄, 조건 1개 등)
+   - 주변 코드 리팩토링 절대 금지
+   - 관련 없는 함수/클래스 수정 금지
+2. **적용 후 검증**: Edit 완료 후 해당 파일을 다시 Read하여
+   - 문법/구조 이상 없는지 육안 확인
+   - 변경 전후가 의도대로 다른지 확인
+3. **위험 감지 시 스킵**: 아래 경우엔 적용하지 말고 ❌ 스킵 처리
+   - 변경 범위가 설명보다 훨씬 넓어지는 경우
+   - 기존 로직 흐름이 크게 바뀌는 경우
+   - 테스트 없이 검증 불가한 동작 변경인 경우
+
+## 공통 주의사항
 - 프로젝트 외부 파일 절대 수정 금지
 - 적용 불가한 경우 이유 명시
 
@@ -1286,19 +1607,24 @@ ${AGREED_DETAILS}
 ## 변경사항 적용 결과
 
 ### ✅ 성공
-- **파일**: 경로 / **변경**: 설명
+- **파일**: 경로 / **변경**: 설명 / **신뢰도**: 합의|SOLO
 
 ### ❌ 실패/스킵
 - **파일**: 경로 / **이유**: 설명
 
 ## 요약
-총 ${AGREED_COUNT}개 중 N개 적용"
+총 ${AGREED_COUNT}개 중 N개 적용 (합의 N개 / SOLO N개)"
+
+    # 프롬프트가 길 수 있으므로 임시 파일 + stdin 파이프로 전달 (-p 인수 없이)
+    APPLY_PROMPT_FILE=$(mktemp)
+    printf '%s' "$APPLY_PROMPT" > "$APPLY_PROMPT_FILE"
 
     (cd "$PROJECT_DIR" && CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN" \
-      "$CLAUDE_BIN" --dangerously-skip-permissions -p "$APPLY_PROMPT") \
+      "$CLAUDE_BIN" --dangerously-skip-permissions --max-budget-usd 3 -p < "$APPLY_PROMPT_FILE") \
       > "$SESSION_DIR/round-${round}/apply-changes.md" \
       2>>"$APPLIER_LOG"
     APPLY_EXIT=$?
+    rm -f "$APPLY_PROMPT_FILE"
 
     if [ "$APPLY_EXIT" -eq 0 ]; then
       echo "[$(date +%H:%M:%S)] [R${round}] APPLIER 완료 ✓ (exit: 0)" >> "$APPLIER_LOG"
@@ -1378,6 +1704,15 @@ def load_json(path):
         with open(path) as f: return json.load(f)
     except: return {}
 
+def load_json(path):
+    try:
+        with open(path) as f: return json.load(f)
+    except: return {}
+
+# target_quality를 매 라운드마다 meta.json에서 읽어 실시간 반영
+_meta = load_json(f'{session_dir}/meta.json')
+target_quality = float(_meta.get('target_quality') or 8.5)
+
 votes = load_json(f'{session_dir}/round-{round_num}/votes.json')
 q           = float(votes.get('overall_quality_score') or 0)
 _pq         = votes.get('prev_quality_score')
@@ -1400,12 +1735,9 @@ for r in range(round_num - 1, max(0, round_num - 3), -1):
 converged = False
 reason    = ""
 
-if q >= 8.0:
+if q >= target_quality:
     converged = True
-    reason = f"품질 점수 {q}/10 달성 — 출시 가능 수준"
-elif release_ready and q >= 7.5:
-    converged = True
-    reason = f"릴리즈 준비 완료 (품질 {q}/10)"
+    reason = f"목표 품질 점수 {target_quality}/10 달성 (현재 {q:.1f}/10)"
 elif stagnant_rounds >= 2 and abs(score_change) < 0.1:
     converged = True
     reason = f"정체로 인한 종료 — {stagnant_rounds}라운드 연속 변경 없음 (품질 {q}/10)"
@@ -1413,7 +1745,7 @@ elif round_num >= total:
     converged = True
     reason = f"최대 라운드 도달 ({total}라운드, 품질 {q}/10)"
 else:
-    reason = f"계속 진행 (품질 {q}/10, 이전 대비 {score_change:+.1f})"
+    reason = f"계속 진행 (품질 {q}/10, 목표 {target_quality}/10까지 {target_quality - q:+.1f})"
 
 convergence_rate = round(min(1.0, q / 10.0), 2)
 top_issues = [r['title'] for r in rejected[:5]]
