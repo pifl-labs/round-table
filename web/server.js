@@ -237,7 +237,10 @@ function listProjects() {
   const getLabel = (dir, name) => {
     if (existsSync(join(dir, "pubspec.yaml"))) return `${name} (Flutter)`;
     if (existsSync(join(dir, "package.json"))) return `${name} (Node)`;
-    if (existsSync(join(dir, "pyproject.toml")) || existsSync(join(dir, "setup.py"))) return `${name} (Python)`;
+    if (existsSync(join(dir, "pyproject.toml"))
+        || existsSync(join(dir, "setup.py"))
+        || existsSync(join(dir, "requirements.txt"))
+        || existsSync(join(dir, "Pipfile"))) return `${name} (Python)`;
     if (existsSync(join(dir, "go.mod"))) return `${name} (Go)`;
     try {
       if (readdirSync(dir).some(f => f.endsWith(".sh"))) return `${name} (Shell)`;
