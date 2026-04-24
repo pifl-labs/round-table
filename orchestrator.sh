@@ -9,7 +9,7 @@
 # 계속: ./orchestrator.sh --continue 20260324_112143 2
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-LOG_DIR="${SCRIPT_DIR}/logs"
+# LOG_DIR은 세션 ID 결정 후 ${SESSION_DIR}/logs 로 설정 (per-session 격리)
 
 # ============================================================
 # === 모드 감지: 신규 vs 계속 ===
@@ -69,14 +69,14 @@ else
   fi
 fi
 
-# Create directories
-mkdir -p "$LOG_DIR"
+# Create directories (per-session logs/ 격리)
+LOG_DIR="${SESSION_DIR}/logs"
 if [ "$CONTINUE_MODE" = true ]; then
   for r in $(seq "$START_DEBATE_ROUND" "$TOTAL_ROUNDS"); do mkdir -p "$SESSION_DIR/round-$r"; done
 else
   for r in $(seq 1 "$TOTAL_ROUNDS"); do mkdir -p "$SESSION_DIR/round-$r"; done
 fi
-mkdir -p "$SESSION_DIR/final"
+mkdir -p "$SESSION_DIR/final" "$LOG_DIR"
 
 # === 환경변수 로딩 (.env 파일 지원) ===
 SCRIPT_ENV="${SCRIPT_DIR}/.env"
@@ -402,7 +402,8 @@ run_agent_codex() {
 # ============================================================
 # === Session 초기화 ===
 # ============================================================
-clean_logs
+# 신규 세션에서만 세션 내부 로그 정리 (--continue 시 이전 라운드 로그 보존)
+[ "$CONTINUE_MODE" = false ] && clean_logs
 
 AGENTS_JSON="["
 for id in "${SELECTED_AGENTS[@]}"; do
@@ -619,7 +620,41 @@ PYEOF
 cp "$SESSION_DIR/final/synthesis.md" "$SESSION_DIR/conclusion.md" 2>/dev/null
 update_session_status "completed"
 
+# SUMMARY.md 자동 생성 — 한 눈에 세션 전체 훑기용
+python3 - <<PYEOF 2>/dev/null || true
+import json, os, glob
+session_dir = "$SESSION_DIR"
+try:
+    meta = json.load(open(os.path.join(session_dir, "meta.json")))
+except Exception:
+    meta = {}
+topic = meta.get("topic", "(unknown)")
+rounds = meta.get("rounds", 0)
+agents = [a.get("name", a.get("id", "?")) for a in meta.get("agents", [])]
+lines = ["# Session Summary — 토론", "", f"- **토픽**: {topic}", f"- **라운드**: {rounds}", f"- **참여자**: {', '.join(agents)}", f"- **세션 ID**: $TIMESTAMP", "", "## 최종 결정 (synthesis)", ""]
+try:
+    with open(os.path.join(session_dir, "final", "synthesis.md")) as f:
+        lines.append(f.read().strip())
+except Exception:
+    lines.append("(없음)")
+lines += ["", "## 라운드별 산출물", ""]
+for r in range(1, int(rounds) + 1):
+    rdir = os.path.join(session_dir, f"round-{r}")
+    if not os.path.isdir(rdir):
+        continue
+    lines.append(f"### Round {r}")
+    for md in sorted(glob.glob(os.path.join(rdir, "*.md"))):
+        lines.append(f"- [{os.path.basename(md)}](round-{r}/{os.path.basename(md)})")
+    lines.append("")
+with open(os.path.join(session_dir, "SUMMARY.md"), "w") as f:
+    f.write("\n".join(lines) + "\n")
+PYEOF
+
+# sessions/latest 심링크 갱신 (최근 토론 세션 바로가기)
+ln -sfn "$TIMESTAMP" "${SCRIPT_DIR}/sessions/latest" 2>/dev/null || true
+
 echo ""
 echo "🏴‍☠️ Round Table 완료!"
 echo "   결과: $SESSION_DIR/conclusion.md"
+echo "   요약: $SESSION_DIR/SUMMARY.md"
 echo "   세션: $TIMESTAMP"

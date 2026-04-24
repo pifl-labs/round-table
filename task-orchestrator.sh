@@ -17,7 +17,7 @@ set -euo pipefail
 #   - --output-format json 으로 텍스트 추출
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-LOG_DIR="${SCRIPT_DIR}/logs"
+# LOG_DIR은 세션 ID 결정 후 ${SESSION_DIR}/logs 로 설정 (per-session 격리)
 TASK_SESSIONS_BASE="${SCRIPT_DIR}/sessions/tasks"
 JSON_EXTRACTOR="${SCRIPT_DIR}/.extract_json.py"
 
@@ -45,8 +45,9 @@ SESSION_DIR="${TASK_SESSIONS_BASE}/${SESSION_ID}"
 [ -f "$SESSION_DIR/meta.json" ] || { echo "❌ meta.json 없음" >&2; exit 1; }
 
 # ============================================================
-# 환경 로드
+# 환경 로드 (per-session logs/ 격리)
 # ============================================================
+LOG_DIR="${SESSION_DIR}/logs"
 mkdir -p "$LOG_DIR"
 
 SCRIPT_ENV="${SCRIPT_DIR}/.env"
@@ -81,7 +82,7 @@ done
 # ============================================================
 # 유틸리티
 # ============================================================
-LOG_PREFIX="task-${SESSION_ID}"
+# LOG_PREFIX 제거: 로그는 세션 내부 logs/ 에 저장되므로 prefix 불필요
 
 ensure_project_claudeignore() {
   local dir="$1"
@@ -127,7 +128,7 @@ out/
 IGNORE_EOF
 }
 
-log_progress() { echo "[$(date +%H:%M:%S)] $*" | tee -a "$LOG_DIR/${LOG_PREFIX}-main.log"; }
+log_progress() { echo "[$(date +%H:%M:%S)] $*" | tee -a "$LOG_DIR/main.log"; }
 
 py_get() { python3 -c "import json; d=json.load(open('$SESSION_DIR/meta.json')); print(d.get('$1','$2'))" 2>/dev/null || echo "$2"; }
 
@@ -219,7 +220,7 @@ GEMINI_API_KEY="${GEMINI_API_KEY:-}"
 run_task_agent() {
   local id="$1" phase="$2" prompt="$3"
   local output="$SESSION_DIR/phase-${phase}/${id}.md"
-  local log="$LOG_DIR/${LOG_PREFIX}-${id}.log"
+  local log="$LOG_DIR/${id}.log"
   local tmp; tmp=$(mktemp)
 
   # 프로바이더 결정: codex-cli 프로파일이면 Codex CLI 사용, 그 외 Claude
@@ -354,7 +355,7 @@ output_type:
 }"
 
   PIPELINE_RAW=$(cd "$PROJECT_DIR" && CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN" \
-    "$CLAUDE_BIN" --tools "Read,Glob,Grep" -p "$PIPELINE_PROMPT" 2>>"$LOG_DIR/${LOG_PREFIX}-generator.log")
+    "$CLAUDE_BIN" --tools "Read,Glob,Grep" -p "$PIPELINE_PROMPT" 2>>"$LOG_DIR/generator.log")
 
   PIPELINE_JSON=$(echo "$PIPELINE_RAW" | extract_json)
 
@@ -698,7 +699,7 @@ overall_score >= ${RELEASE_THRESHOLD_VALUE} 이면 release_ready: true
 }"
 
   local RATING_RAW; RATING_RAW=$(CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN" \
-    "$CLAUDE_BIN" -p "$RATING_PROMPT" 2>>"$LOG_DIR/${LOG_PREFIX}-rater.log")
+    "$CLAUDE_BIN" -p "$RATING_PROMPT" 2>>"$LOG_DIR/rater.log")
   local RATING_JSON; RATING_JSON=$(echo "$RATING_RAW" | extract_json)
 
   local RATING_VALID; RATING_VALID=$(python3 -c "
@@ -873,7 +874,7 @@ ${RATING_REPORT}
 
 (CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN" \
   "$CLAUDE_BIN" --allowedTools "" -p "$SYNTHESIS_PROMPT") \
-  > "$SESSION_DIR/conclusion.md" 2>>"$LOG_DIR/${LOG_PREFIX}-synthesis.log"
+  > "$SESSION_DIR/conclusion.md" 2>>"$LOG_DIR/synthesis.log"
 
 # 훅 아티팩트 제거
 python3 - << 'PYEOF'
@@ -901,8 +902,62 @@ for a in d.get('agents', []): a['status'] = 'done'
 with open('$SESSION_DIR/meta.json', 'w') as f: json.dump(d, f, ensure_ascii=False, indent=2)
 PYEOF
 
+# SUMMARY.md 자동 생성 — 한 눈에 세션 전체 훑기용
+python3 - <<PYEOF 2>/dev/null || true
+import json, os, glob
+session_dir = "$SESSION_DIR"
+try:
+    meta = json.load(open(os.path.join(session_dir, "meta.json")))
+except Exception:
+    meta = {}
+topic = meta.get("topic", "(unknown)")
+phases = int(meta.get("total_phases", 0) or 0)
+agents = [a.get("name", a.get("id", "?")) for a in meta.get("agents", [])]
+lines = [
+    "# Session Summary — Task",
+    "",
+    f"- **세션 ID**: $SESSION_ID",
+    f"- **토픽**: {topic}",
+    f"- **Phase 수**: {phases}",
+    f"- **품질 점수**: {meta.get('quality_score', '?')}/10",
+    f"- **릴리즈 가능**: {'예' if meta.get('release_ready') else '아니오'}",
+    f"- **참여자**: {', '.join(agents) if agents else '(없음)'}",
+    "",
+    "## 결론",
+    "",
+]
+try:
+    with open(os.path.join(session_dir, "conclusion.md")) as f:
+        lines.append(f.read().strip())
+except Exception:
+    lines.append("(없음)")
+lines += ["", "## Phase별 산출물", ""]
+for p in range(1, phases + 1):
+    pdir = os.path.join(session_dir, f"phase-{p}")
+    if not os.path.isdir(pdir):
+        continue
+    lines.append(f"### Phase {p}")
+    for md in sorted(glob.glob(os.path.join(pdir, "*.md"))):
+        lines.append(f"- [{os.path.basename(md)}](phase-{p}/{os.path.basename(md)})")
+    lines.append("")
+rating_report = os.path.join(session_dir, "rating", "report.md")
+if os.path.exists(rating_report):
+    lines += ["## 평가 리포트", ""]
+    try:
+        with open(rating_report) as f:
+            lines.append(f.read().strip())
+    except Exception:
+        pass
+with open(os.path.join(session_dir, "SUMMARY.md"), "w") as f:
+    f.write("\n".join(lines) + "\n")
+PYEOF
+
+# sessions/tasks/latest 심링크 갱신
+ln -sfn "$SESSION_ID" "${TASK_SESSIONS_BASE}/latest" 2>/dev/null || true
+
 log_progress ""
 log_progress "🏴‍☠️ 작업 파이프라인 완료!"
+log_progress "   요약: $SESSION_DIR/SUMMARY.md"
 if [ "$RELEASE_READY" = "true" ]; then
   log_progress "   ✅ 릴리즈 가능! 점수: ${QUALITY_SCORE}/10"
 else

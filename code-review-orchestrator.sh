@@ -12,7 +12,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-LOG_DIR="${SCRIPT_DIR}/logs"
+# LOG_DIR은 세션 ID 결정 후 ${SESSION_DIR}/logs 로 설정 (per-session 격리)
 CR_SESSIONS_BASE="${SCRIPT_DIR}/sessions/code-review"
 JSON_EXTRACTOR="${SCRIPT_DIR}/.extract_json.py"
 
@@ -60,11 +60,10 @@ TOTAL_ROUNDS=$(py_get rounds "2")
 TARGET_QUALITY=$(py_get target_quality "8.5")
 
 # ============================================================
-# 디렉토리 & 환경
+# 디렉토리 & 환경 (per-session logs/ 격리)
 # ============================================================
+LOG_DIR="${SESSION_DIR}/logs"
 mkdir -p "$LOG_DIR"
-# 7일 이상 된 로그 자동 삭제
-find "$LOG_DIR" -name "cr-*.log" -mtime +7 -delete 2>/dev/null || true
 
 SCRIPT_ENV="${SCRIPT_DIR}/.env"
 if [ -f "$SCRIPT_ENV" ]; then
@@ -302,7 +301,6 @@ except: print('')
 # ============================================================
 # 유틸리티
 # ============================================================
-LOG_PREFIX="cr-${SESSION_ID}"
 
 ensure_project_claudeignore() {
   local dir="$1"
@@ -348,7 +346,7 @@ out/
 IGNORE_EOF
 }
 
-log_progress() { echo "[$(date +%H:%M:%S)] $*" | tee -a "$LOG_DIR/${LOG_PREFIX}-main.log"; }
+log_progress() { echo "[$(date +%H:%M:%S)] $*" | tee -a "$LOG_DIR/main.log"; }
 
 update_meta() {
   python3 - << PYEOF
@@ -412,7 +410,7 @@ except: pass
 run_cr_agent() {
   local id="$1" round="$2" prompt="$3"
   local output="$SESSION_DIR/round-${round}/${id}.md"
-  local log="$LOG_DIR/${LOG_PREFIX}-${id}.log"
+  local log="$LOG_DIR/${id}.log"
   local provider; provider=$(resolve_agent_provider "$id")
 
   echo "[$(date +%H:%M:%S)] [R${round}] ${id} 시작 (${provider})..." >> "$log"
@@ -592,7 +590,7 @@ PROMPT_EOF
 )
 
   AGENT_RAW=$(cd "$PROJECT_DIR" && CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN" \
-    "$CLAUDE_BIN" --tools "Read,Glob,Grep" -p "$AGENT_GEN_PROMPT" 2>>"$LOG_DIR/${LOG_PREFIX}-generator.log")
+    "$CLAUDE_BIN" --tools "Read,Glob,Grep" -p "$AGENT_GEN_PROMPT" 2>>"$LOG_DIR/generator.log")
 
   AGENTS_JSON=$(echo "$AGENT_RAW" | extract_json)
 
@@ -1058,7 +1056,7 @@ ${ISSUE_LIST}
 또는
 판단: ❌ 반대 — 이유: (1-2문장)"
 
-          LOG="$LOG_DIR/${LOG_PREFIX}-${id}.log"
+          LOG="$LOG_DIR/${id}.log"
           OUTPUT="$SESSION_DIR/round-${round}/${id}.md"
           provider=$(resolve_agent_provider "$id")
 
@@ -1240,7 +1238,7 @@ ${AGENT_COUNT_ACTUAL}개 리뷰에서:
 }"
 
   VOTE_RAW=$(CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN" \
-    "$CLAUDE_BIN" -p "$VOTE_PROMPT" 2>>"$LOG_DIR/${LOG_PREFIX}-voter.log") || true
+    "$CLAUDE_BIN" -p "$VOTE_PROMPT" 2>>"$LOG_DIR/voter.log") || true
   VOTES_JSON=$(echo "$VOTE_RAW" | extract_json)
   VOTES_VALID=$(python3 -c "
 import json, sys
@@ -1314,7 +1312,7 @@ for c in issues:
 print('\n'.join(lines))
 " 2>/dev/null)
 
-      PEER_LOG="$LOG_DIR/${LOG_PREFIX}-peer-${id}-r${round}.log"
+      PEER_LOG="$LOG_DIR/peer-${id}-r${round}.log"
       PEER_OUT="$SESSION_DIR/round-${round}/peer-review-${id}.json"
 
       (
@@ -1535,7 +1533,7 @@ print(len(d.get('agreed_changes', [])))
   # ----------------------------------------------------------
   # 2c. 변경사항 적용 (--dangerously-skip-permissions: 파일 편집 필요)
   # ----------------------------------------------------------
-  APPLIER_LOG="$LOG_DIR/${LOG_PREFIX}-applier.log"
+  APPLIER_LOG="$LOG_DIR/applier.log"
   if [ "$AGREED_COUNT" -gt 0 ]; then
     log_progress "[R${round}] 변경사항 적용 중 (${AGREED_COUNT}개)..."
 
@@ -1681,7 +1679,7 @@ ${APPLIED_SUMMARY}
   (cd "$PROJECT_DIR" && CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN" \
     "$CLAUDE_BIN" -p "$REVIEWER_PROMPT") \
     > "$SESSION_DIR/round-${round}/code-reviewer.md" \
-    2>>"$LOG_DIR/${LOG_PREFIX}-reviewer.log"
+    2>>"$LOG_DIR/reviewer.log"
   log_progress "[R${round}] 코드 리뷰 완료"
 
   # ----------------------------------------------------------
@@ -1893,7 +1891,7 @@ ${FINAL_CONV}
 (cd "$PROJECT_DIR" && CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN" \
   "$CLAUDE_BIN" --allowedTools "" -p "$FINAL_PROMPT") \
   > "$SESSION_DIR/final/synthesis.md" \
-  2>>"$LOG_DIR/${LOG_PREFIX}-final.log"
+  2>>"$LOG_DIR/final.log"
 
 # 훅 아티팩트 제거
 python3 - << 'PYEOF'
@@ -1921,4 +1919,60 @@ d['completed_at'] = datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
 with open('$SESSION_DIR/meta.json', 'w') as f: json.dump(d, f, ensure_ascii=False, indent=2)
 PYEOF
 
+# SUMMARY.md 자동 생성 — 한 눈에 세션 전체 훑기용
+python3 - <<PYEOF 2>/dev/null || true
+import json, os, glob
+session_dir = "$SESSION_DIR"
+try:
+    meta = json.load(open(os.path.join(session_dir, "meta.json")))
+except Exception:
+    meta = {}
+topic = meta.get("topic", "(unknown)")
+rounds = int(meta.get("rounds", 0) or 0)
+converged = meta.get("converged", False)
+agents_meta = meta.get("agents", [])
+agents = [a.get("name", a.get("id", "?")) for a in agents_meta]
+lines = [
+    "# Session Summary — Code Review",
+    "",
+    f"- **세션 ID**: $SESSION_ID",
+    f"- **토픽**: {topic}",
+    f"- **라운드 계획**: {rounds}",
+    f"- **수렴 여부**: {'예' if converged else '아니오'}",
+    f"- **참여자**: {', '.join(agents) if agents else '(없음)'}",
+    "",
+    "## 최종 보고서",
+    "",
+]
+try:
+    with open(os.path.join(session_dir, "final", "synthesis.md")) as f:
+        lines.append(f.read().strip())
+except Exception:
+    lines.append("(없음)")
+lines += ["", "## 라운드별 산출물", ""]
+for r in range(1, rounds + 1):
+    rdir = os.path.join(session_dir, f"round-{r}")
+    if not os.path.isdir(rdir):
+        continue
+    lines.append(f"### Round {r}")
+    for md in sorted(glob.glob(os.path.join(rdir, "*.md"))):
+        lines.append(f"- [{os.path.basename(md)}](round-{r}/{os.path.basename(md)})")
+    votes_path = os.path.join(rdir, "votes.json")
+    if os.path.exists(votes_path):
+        try:
+            v = json.load(open(votes_path))
+            score = v.get("overall_quality_score", "?")
+            agreed = len(v.get("agreed_changes", []))
+            lines.append(f"  - 품질 {score}/10, 채택 {agreed}건")
+        except Exception:
+            pass
+    lines.append("")
+with open(os.path.join(session_dir, "SUMMARY.md"), "w") as f:
+    f.write("\n".join(lines) + "\n")
+PYEOF
+
+# sessions/code-review/latest 심링크 갱신
+ln -sfn "$SESSION_ID" "${CR_SESSIONS_BASE}/latest" 2>/dev/null || true
+
 log_progress "🔍 Code Review 완료! 수렴: ${CONVERGED} | 세션: ${SESSION_ID}"
+log_progress "   요약: $SESSION_DIR/SUMMARY.md"

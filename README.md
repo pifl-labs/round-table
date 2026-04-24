@@ -105,26 +105,41 @@ node server.js 8080   # 포트 지정
 
 ```
 round-table/
-├── orchestrator.sh       # 메인 오케스트레이터
-├── .env.example          # 환경변수 템플릿
-├── .gitignore
+├── orchestrator.sh              # 토론 오케스트레이터
+├── code-review-orchestrator.sh  # 코드 리뷰 오케스트레이터
+├── task-orchestrator.sh         # 태스크 오케스트레이터
+├── .env.example
+├── .gitignore / .claudeignore   # sessions/, logs/ 모두 제외
 ├── README.md
-├── sessions/             # 토론 기록 (gitignore)
-│   └── 20260324_093318/
-│       ├── meta.json
-│       ├── round-1/
-│       │   ├── analyst.md
-│       │   ├── developer.md
-│       │   └── critic.md
-│       ├── round-2/
-│       │   └── ...
-│       └── conclusion.md
-├── logs/                 # 실시간 로그 (gitignore)
+├── sessions/                    # 모든 세션 산출물 (gitignore)
+│   ├── latest -> 20260424_.../  # 최근 토론 세션 심링크
+│   ├── 20260324_093318/         # 토론 세션
+│   │   ├── meta.json
+│   │   ├── SUMMARY.md           # 세션 전체 요약 (자동 생성)
+│   │   ├── logs/                # 이 세션의 모든 실행 로그
+│   │   ├── round-1/*.md
+│   │   ├── round-2/...
+│   │   ├── final/synthesis.md
+│   │   └── conclusion.md
+│   ├── code-review/
+│   │   ├── latest -> <id>/
+│   │   └── <SESSION_ID>/        # MD + JSON + logs/ 통합
+│   │       ├── meta.json, agents.json
+│   │       ├── SUMMARY.md
+│   │       ├── logs/
+│   │       ├── round-N/
+│   │       └── final/
+│   └── tasks/
+│       ├── latest -> <id>/
+│       └── <SESSION_ID>/...
+├── logs/                        # 서버 전역 로그만 (server.log 등)
 └── web/
-    ├── server.js         # Node.js 서버
-    ├── index.html        # 대시보드 UI
+    ├── server.js
+    ├── index.html
     └── package.json
 ```
+
+> **한 세션 = 한 폴더**: 모든 산출물·로그가 세션 디렉토리 안에 모여 있어서 세션 하나를 통째로 확인·삭제·백업하기 쉽습니다. `sessions/<type>/latest` 심링크로 가장 최근 세션에 바로 접근할 수 있습니다.
 
 ---
 
