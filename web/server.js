@@ -461,7 +461,7 @@ function getCodeReviewSession(id) {
 }
 
 function getCodeReviewLogs(sessionId) {
-  if (!sessionId) return {};
+  if (!/^\d{8}_\d{6}$/.test(sessionId)) return {};
   const logsDir = join(CR_SESSIONS_DIR, sessionId, "logs");
   if (!existsSync(logsDir)) return {};
   const logs = {};
@@ -1102,7 +1102,7 @@ function getTaskSession(id) {
 }
 
 function getTaskLogs(sessionId) {
-  if (!sessionId) return {};
+  if (!/^\d{8}_\d{6}$/.test(sessionId)) return {};
   const logsDir = join(TASK_SESSIONS_DIR, sessionId, "logs");
   if (!existsSync(logsDir)) return {};
   const logs = {};
@@ -1303,12 +1303,6 @@ const server = createServer((req, res) => {
     if (!existsSync(dir)) return json({ error: "Not found" }, 404);
     try {
       rmSync(dir, { recursive: true, force: true });
-      const logPrefix = `task-${id}-`;
-      if (existsSync(LOGS_DIR)) {
-        for (const f of readdirSync(LOGS_DIR)) {
-          if (f.startsWith(logPrefix) && f.endsWith(".log")) rmSync(join(LOGS_DIR, f), { force: true });
-        }
-      }
       return json({ deleted: true, id });
     } catch (e) { return json({ error: e.message }, 500); }
   }
@@ -1432,17 +1426,8 @@ const server = createServer((req, res) => {
     const dir = join(CR_SESSIONS_DIR, id);
     if (!existsSync(dir)) return json({ error: "Not found" }, 404);
     try {
-      // 세션 디렉토리 삭제
+      // 세션 디렉토리 삭제 (logs/는 세션 하위에 포함되어 함께 삭제)
       rmSync(dir, { recursive: true, force: true });
-      // 관련 로그 파일 삭제 (logs/cr-{id}-*.log)
-      const logPrefix = `cr-${id}-`;
-      if (existsSync(LOGS_DIR)) {
-        for (const f of readdirSync(LOGS_DIR)) {
-          if (f.startsWith(logPrefix) && f.endsWith(".log")) {
-            rmSync(join(LOGS_DIR, f), { force: true });
-          }
-        }
-      }
       return json({ deleted: true, id });
     } catch (e) {
       return json({ error: e.message }, 500);
