@@ -282,6 +282,9 @@ function listProjects() {
       if (children.length) {
         projects.push({ id: d, name: `${d} (전체)`, path: full });
         projects.push(...children);
+      } else if (d.startsWith("pipi_")) {
+        // pipi_* prefix는 미초기화 폴더라도 등록 (예: pipi_utopia)
+        projects.push({ id: d, name: `${d} (미초기화)`, path: full });
       }
     }
   }
