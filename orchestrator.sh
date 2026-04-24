@@ -25,8 +25,8 @@ if [ "$1" = "--continue" ]; then
   if [ ! -f "${SESSION_DIR}/meta.json" ]; then
     echo "❌ 세션 없음: ${SESSION_ID}" >&2; exit 1
   fi
-  if ! [[ "$ADD_ROUNDS" =~ ^[1-9]$ ]]; then
-    echo "❌ 추가 라운드 수는 1~9 사이여야 합니다 (입력: $ADD_ROUNDS)" >&2; exit 1
+  if ! [[ "$ADD_ROUNDS" =~ ^([1-9]|[12][0-9]|30)$ ]]; then
+    echo "❌ 추가 라운드 수는 1~30 사이여야 합니다 (입력: $ADD_ROUNDS)" >&2; exit 1
   fi
 
   TOPIC=$(python3 -c "import json; print(json.load(open('${SESSION_DIR}/meta.json')).get('topic',''))" 2>/dev/null)
@@ -63,8 +63,8 @@ else
   START_DEBATE_ROUND=2
   TOTAL_ROUNDS=$ROUNDS
 
-  if ! [[ "$ROUNDS" =~ ^[1-9]$ ]]; then
-    echo "❌ 라운드 수는 1~9 사이여야 합니다 (입력: $ROUNDS)" >&2
+  if ! [[ "$ROUNDS" =~ ^([1-9]|[12][0-9]|30)$ ]]; then
+    echo "❌ 라운드 수는 1~30 사이여야 합니다 (입력: $ROUNDS)" >&2
     exit 1
   fi
 fi
