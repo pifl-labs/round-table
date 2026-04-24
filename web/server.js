@@ -103,17 +103,22 @@ function getProviderStatus() {
     weekSessions = recent.reduce((s, d) => s + (d.sessionCount || 0), 0);
     weekMessages = recent.reduce((s, d) => s + (d.messageCount || 0), 0);
   } catch {}
-  // 로그에서 토큰 합계 및 날짜 범위
+  // 로그에서 토큰 합계 및 날짜 범위 — 세션별 logs/ 서브디렉토리를 재귀 스캔
   let claudeCost = 0, firstLogDate = null, lastLogDate = null;
-  if (existsSync(LOGS_DIR)) {
-    for (const f of readdirSync(LOGS_DIR)) {
+  const walkLogs = (root) => {
+    if (!existsSync(root)) return;
+    for (const f of readdirSync(root)) {
+      if (f === "latest") continue; // 심링크 중복 집계 방지
+      const full = join(root, f);
+      let st;
+      try { st = statSync(full); } catch { continue; }
+      if (st.isDirectory()) { walkLogs(full); continue; }
       if (!f.endsWith(".log")) continue;
       try {
-        const fileMtime = statSync(join(LOGS_DIR, f)).mtime;
-        const dateStr = fileMtime.toISOString().slice(0, 10);
+        const dateStr = st.mtime.toISOString().slice(0, 10);
         if (!firstLogDate || dateStr < firstLogDate) firstLogDate = dateStr;
         if (!lastLogDate || dateStr > lastLogDate) lastLogDate = dateStr;
-        const content = readFileSync(join(LOGS_DIR, f), "utf-8");
+        const content = readFileSync(full, "utf-8");
         for (const line of content.split("\n")) {
           if (!line.startsWith("{")) continue;
           try {
@@ -130,7 +135,9 @@ function getProviderStatus() {
         }
       } catch {}
     }
-  }
+  };
+  walkLogs(SESSIONS_DIR); // sessions/<id>/logs/, sessions/code-review/<id>/logs/, sessions/tasks/<id>/logs/
+  walkLogs(LOGS_DIR);     // 전역 로그(server.log 등)가 남아있을 경우
   // 날짜 범위 → 일 평균 → 월 환산
   const logDays = (firstLogDate && lastLogDate)
     ? Math.max(1, Math.round((new Date(lastLogDate) - new Date(firstLogDate)) / 86400000) + 1)
@@ -283,6 +290,7 @@ function listSessions() {
     .filter((d) => {
       if (d === "code-review") return false; // code-review 세션은 별도 디렉토리
       if (d === "tasks") return false; // task 세션은 별도 디렉토리
+      if (d === "latest") return false; // 최근 세션 심링크(중복 제거)
       try { return statSync(join(SESSIONS_DIR, d)).isDirectory(); } catch { return false; }
     })
     .sort()
@@ -318,11 +326,27 @@ function getSession(id) {
 }
 
 function getLogs() {
-  if (!existsSync(LOGS_DIR)) return {};
+  // 토론 세션은 각 sessions/<id>/logs/ 내부에 로그를 보관.
+  // 가장 최근 토론 세션의 로그를 반환 (기존 UI 하위호환).
+  if (!existsSync(SESSIONS_DIR)) return {};
+  const sessions = readdirSync(SESSIONS_DIR)
+    .filter((d) => {
+      if (d === "code-review" || d === "tasks" || d === "latest") return false;
+      try { return statSync(join(SESSIONS_DIR, d)).isDirectory(); } catch { return false; }
+    })
+    .map((d) => {
+      try { return { id: d, mtime: statSync(join(SESSIONS_DIR, d)).mtimeMs }; }
+      catch { return null; }
+    })
+    .filter(Boolean)
+    .sort((a, b) => b.mtime - a.mtime);
+  if (!sessions.length) return {};
+  const logsDir = join(SESSIONS_DIR, sessions[0].id, "logs");
+  if (!existsSync(logsDir)) return {};
   const logs = {};
-  for (const f of readdirSync(LOGS_DIR)) {
+  for (const f of readdirSync(logsDir)) {
     if (f.endsWith(".log")) {
-      logs[f.replace(".log", "")] = safeRead(join(LOGS_DIR, f)) || "";
+      logs[f.replace(".log", "")] = safeRead(join(logsDir, f)) || "";
     }
   }
   return logs;
@@ -394,6 +418,7 @@ function listCodeReviewSessions() {
   if (!existsSync(CR_SESSIONS_DIR)) return [];
   return readdirSync(CR_SESSIONS_DIR)
     .filter((d) => {
+      if (d === "latest") return false; // 최근 세션 심링크(중복 제거)
       try { return statSync(join(CR_SESSIONS_DIR, d)).isDirectory(); } catch { return false; }
     })
     .sort().reverse()
@@ -436,15 +461,15 @@ function getCodeReviewSession(id) {
 }
 
 function getCodeReviewLogs(sessionId) {
-  if (!existsSync(LOGS_DIR)) return {};
-  const prefix = `cr-${sessionId}-`;
+  if (!sessionId) return {};
+  const logsDir = join(CR_SESSIONS_DIR, sessionId, "logs");
+  if (!existsSync(logsDir)) return {};
   const logs = {};
-  for (const f of readdirSync(LOGS_DIR)) {
-    if (f.startsWith(prefix) && f.endsWith(".log")) {
-      const key = f.replace(prefix, "").replace(".log", "");
-      const raw = safeRead(join(LOGS_DIR, f)) || "";
-      logs[key] = raw.length > 4000 ? raw.slice(-4000) : raw;
-    }
+  for (const f of readdirSync(logsDir)) {
+    if (!f.endsWith(".log")) continue;
+    const key = f.replace(".log", "");
+    const raw = safeRead(join(logsDir, f)) || "";
+    logs[key] = raw.length > 4000 ? raw.slice(-4000) : raw;
   }
   return logs;
 }
@@ -1041,6 +1066,7 @@ function listTaskSessions() {
   if (!existsSync(TASK_SESSIONS_DIR)) return [];
   return readdirSync(TASK_SESSIONS_DIR)
     .filter((d) => {
+      if (d === "latest") return false; // 최근 세션 심링크(중복 제거)
       try { return statSync(join(TASK_SESSIONS_DIR, d)).isDirectory(); } catch { return false; }
     })
     .sort().reverse()
@@ -1076,15 +1102,15 @@ function getTaskSession(id) {
 }
 
 function getTaskLogs(sessionId) {
-  if (!existsSync(LOGS_DIR)) return {};
-  const prefix = `task-${sessionId}-`;
+  if (!sessionId) return {};
+  const logsDir = join(TASK_SESSIONS_DIR, sessionId, "logs");
+  if (!existsSync(logsDir)) return {};
   const logs = {};
-  for (const f of readdirSync(LOGS_DIR)) {
-    if (f.startsWith(prefix) && f.endsWith(".log")) {
-      const key = f.replace(prefix, "").replace(".log", "");
-      const raw = safeRead(join(LOGS_DIR, f)) || "";
-      logs[key] = raw.length > 5000 ? raw.slice(-5000) : raw;
-    }
+  for (const f of readdirSync(logsDir)) {
+    if (!f.endsWith(".log")) continue;
+    const key = f.replace(".log", "");
+    const raw = safeRead(join(logsDir, f)) || "";
+    logs[key] = raw.length > 5000 ? raw.slice(-5000) : raw;
   }
   return logs;
 }
