@@ -282,12 +282,16 @@ function listProjects() {
       if (children.length) {
         projects.push({ id: d, name: `${d} (전체)`, path: full });
         projects.push(...children);
-      } else if (d.startsWith("pipi_")) {
-        // pipi_* prefix는 미초기화 폴더라도 등록 (예: pipi_utopia)
-        projects.push({ id: d, name: `${d} (미초기화)`, path: full });
       }
     }
   }
+
+  // pipi_utopia 하드코딩 추가 (마커 없어도 무조건 노출)
+  const utopiaPath = join(WORKSPACE_DIR, "pipi_utopia");
+  if (existsSync(utopiaPath) && !projects.find((p) => p.id === "pipi_utopia")) {
+    projects.push({ id: "pipi_utopia", name: "pipi_utopia", path: utopiaPath });
+  }
+
   return projects;
 }
 
@@ -469,15 +473,31 @@ function getCodeReviewSession(id) {
 
 function getCodeReviewLogs(sessionId) {
   if (!/^\d{8}_\d{6}$/.test(sessionId)) return {};
-  const logsDir = join(CR_SESSIONS_DIR, sessionId, "logs");
-  if (!existsSync(logsDir)) return {};
   const logs = {};
-  for (const f of readdirSync(logsDir)) {
-    if (!f.endsWith(".log")) continue;
-    const key = f.replace(".log", "");
-    const raw = safeRead(join(logsDir, f)) || "";
-    logs[key] = raw.length > 4000 ? raw.slice(-4000) : raw;
+
+  // 신 형식: sessions/code-review/<id>/logs/*.log (per-session 격리)
+  const logsDir = join(CR_SESSIONS_DIR, sessionId, "logs");
+  if (existsSync(logsDir)) {
+    for (const f of readdirSync(logsDir)) {
+      if (!f.endsWith(".log")) continue;
+      const key = f.replace(".log", "");
+      const raw = safeRead(join(logsDir, f)) || "";
+      logs[key] = raw.length > 4000 ? raw.slice(-4000) : raw;
+    }
   }
+
+  // 옛 형식 fallback: logs/cr-<sessionId>-<key>.log (리팩토링 이전 세션 호환)
+  if (existsSync(LOGS_DIR)) {
+    const prefix = `cr-${sessionId}-`;
+    for (const f of readdirSync(LOGS_DIR)) {
+      if (!f.startsWith(prefix) || !f.endsWith(".log")) continue;
+      const key = f.slice(prefix.length, -".log".length);
+      if (logs[key]) continue; // 신 형식이 우선
+      const raw = safeRead(join(LOGS_DIR, f)) || "";
+      logs[key] = raw.length > 4000 ? raw.slice(-4000) : raw;
+    }
+  }
+
   return logs;
 }
 
