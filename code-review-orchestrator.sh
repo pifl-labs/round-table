@@ -1615,16 +1615,14 @@ ${AGREED_DETAILS}
 ## 요약
 총 ${AGREED_COUNT}개 중 N개 적용 (합의 N개 / SOLO N개)"
 
-    # 프롬프트가 길 수 있으므로 임시 파일 + stdin 파이프로 전달 (-p 인수 없이)
-    APPLY_PROMPT_FILE=$(mktemp)
-    printf '%s' "$APPLY_PROMPT" > "$APPLY_PROMPT_FILE"
-
+    # -p 의 prompt 는 argument 로 직접 전달. stdin 리다이렉트 방식은 일부 환경(웹 server.js 서브프로세스 등)에서
+    # claude CLI 가 빈 stdin 으로 인식해 "Input must be provided ..." 에러를 내므로 사용하지 않는다.
+    # macOS ARG_MAX ~1MB 이므로 25개 변경(~수십 KB) 규모 프롬프트는 argument 로 문제 없음.
     (cd "$PROJECT_DIR" && CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN" \
-      "$CLAUDE_BIN" --dangerously-skip-permissions --max-budget-usd 3 -p < "$APPLY_PROMPT_FILE") \
+      "$CLAUDE_BIN" --dangerously-skip-permissions --max-budget-usd 3 -p "$APPLY_PROMPT") \
       > "$SESSION_DIR/round-${round}/apply-changes.md" \
       2>>"$APPLIER_LOG"
     APPLY_EXIT=$?
-    rm -f "$APPLY_PROMPT_FILE"
 
     if [ "$APPLY_EXIT" -eq 0 ]; then
       echo "[$(date +%H:%M:%S)] [R${round}] APPLIER 완료 ✓ (exit: 0)" >> "$APPLIER_LOG"
