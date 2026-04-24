@@ -30,10 +30,14 @@ const CR_SESSIONS_DIR = join(BASE, "sessions", "code-review");
 const TASK_SESSIONS_DIR = join(BASE, "sessions", "tasks");
 const LOGS_DIR = join(BASE, "logs");
 
-// 프로젝트 루트: PROJECT_DIR 환경변수 > round-table의 상위 디렉토리
+// 프로젝트 루트 우선순위:
+//   1. PROJECT_DIR 환경변수 (명시)
+//   2. /Users/pirate/pifl-labs/code (PiFl Labs 앱 워크스페이스 — 기본)
+//   3. round-table 상위 디렉토리 (fallback)
+const PIFL_CODE_DIR = "/Users/pirate/pifl-labs/code";
 const WORKSPACE_DIR = process.env.PROJECT_DIR
   ? resolve(process.env.PROJECT_DIR)
-  : resolve(BASE, "..");
+  : (existsSync(PIFL_CODE_DIR) ? PIFL_CODE_DIR : resolve(BASE, ".."));
 
 const MIME = {
   ".html": "text/html",
@@ -354,7 +358,7 @@ function getLogs() {
 
 function startDebate({ topic, rounds = 2, agents = "analyst,developer,critic", projectDir }) {
   const dir = projectDir && existsSync(projectDir) ? projectDir : WORKSPACE_DIR;
-  const r = Math.min(Math.max(parseInt(rounds) || 2, 1), 9);
+  const r = Math.min(Math.max(parseInt(rounds) || 2, 1), 30);
   const agentStr = (Array.isArray(agents) ? agents.join(",") : agents).trim() || "analyst,developer,critic";
 
   const script = join(BASE, "orchestrator.sh");
@@ -369,7 +373,7 @@ function startDebate({ topic, rounds = 2, agents = "analyst,developer,critic", p
 
 function startDebateWithId({ topic, rounds = 2, agents = "analyst,developer,critic", projectDir, telegramChatId }) {
   const dir = projectDir && existsSync(projectDir) ? projectDir : WORKSPACE_DIR;
-  const r = Math.min(Math.max(parseInt(rounds) || 2, 1), 9);
+  const r = Math.min(Math.max(parseInt(rounds) || 2, 1), 30);
   const agentStr = (Array.isArray(agents) ? agents.join(",") : agents).trim() || "analyst,developer,critic";
   const sessionId = makeSessionId();
   const sessionDir = join(SESSIONS_DIR, sessionId);
@@ -461,7 +465,7 @@ function getCodeReviewSession(id) {
 }
 
 function getCodeReviewLogs(sessionId) {
-  if (!sessionId) return {};
+  if (!/^\d{8}_\d{6}$/.test(sessionId)) return {};
   const logsDir = join(CR_SESSIONS_DIR, sessionId, "logs");
   if (!existsSync(logsDir)) return {};
   const logs = {};
@@ -482,7 +486,7 @@ function makeSessionId() {
 
 function startCodeReview({ topic, context = "", rounds = 2, agentCount = 5, targetQuality = 8.5, projectDir, aiProfile = "claude" }) {
   const dir = projectDir && existsSync(projectDir) ? projectDir : WORKSPACE_DIR;
-  const r = Math.min(Math.max(parseInt(rounds) || 2, 1), 9);
+  const r = Math.min(Math.max(parseInt(rounds) || 2, 1), 30);
   const n = Math.min(Math.max(parseInt(agentCount) || 5, 2), 12);
   const tq = Math.min(Math.max(parseFloat(targetQuality) || 8.5, 7.0), 10.0);
 
@@ -544,7 +548,7 @@ function runCodeReview(sessionId, aiProfile) {
 function continueCodeReview({ sessionId, rounds = 1 }) {
   const sessionDir = join(CR_SESSIONS_DIR, sessionId);
   if (!existsSync(sessionDir)) return null;
-  const r = Math.min(Math.max(parseInt(rounds) || 1, 1), 9);
+  const r = Math.min(Math.max(parseInt(rounds) || 1, 1), 30);
   const script = join(BASE, "code-review-orchestrator.sh");
   const child = spawn("bash", [script, "--continue", sessionId, String(r)], {
     cwd: BASE, detached: true, stdio: "ignore", env: { ...process.env },
@@ -734,7 +738,7 @@ async function handleCallbackQuery(chatId, data) {
     const val = data.slice(7);
     if (val === "custom") {
       state.step = "rounds_custom";
-      await sendTelegram(chatId, "라운드 수를 직접 입력해 주세요 (1~9):");
+      await sendTelegram(chatId, "라운드 수를 직접 입력해 주세요 (1~30):");
     } else {
       state.params.rounds = parseInt(val);
       if (state.cmd === "debate") {
@@ -802,7 +806,7 @@ async function handleConvText(chatId, text) {
     }
     if (step === "rounds_custom") {
       const n = parseInt(text);
-      if (isNaN(n) || n < 1 || n > 9) { await sendTelegram(chatId, "❌ 1~9 사이 숫자를 입력해 주세요."); return true; }
+      if (isNaN(n) || n < 1 || n > 30) { await sendTelegram(chatId, "❌ 1~30 사이 숫자를 입력해 주세요."); return true; }
       params.rounds = n;
       state.step = "agents";
       await sendTelegram(chatId, `✅ ${n}라운드\n\n에이전트를 선택해 주세요:`, AGENTS_KB);
@@ -824,7 +828,7 @@ async function handleConvText(chatId, text) {
     }
     if (step === "rounds_custom") {
       const n = parseInt(text);
-      if (isNaN(n) || n < 1 || n > 9) { await sendTelegram(chatId, "❌ 1~9 사이 숫자를 입력해 주세요."); return true; }
+      if (isNaN(n) || n < 1 || n > 30) { await sendTelegram(chatId, "❌ 1~30 사이 숫자를 입력해 주세요."); return true; }
       params.rounds = n;
       state.step = "agentcount";
       await sendTelegram(chatId, `✅ ${n}라운드\n\n에이전트 수를 선택해 주세요:`, AGENTCOUNT_KB);
@@ -1102,7 +1106,7 @@ function getTaskSession(id) {
 }
 
 function getTaskLogs(sessionId) {
-  if (!sessionId) return {};
+  if (!/^\d{8}_\d{6}$/.test(sessionId)) return {};
   const logsDir = join(TASK_SESSIONS_DIR, sessionId, "logs");
   if (!existsSync(logsDir)) return {};
   const logs = {};
@@ -1303,12 +1307,6 @@ const server = createServer((req, res) => {
     if (!existsSync(dir)) return json({ error: "Not found" }, 404);
     try {
       rmSync(dir, { recursive: true, force: true });
-      const logPrefix = `task-${id}-`;
-      if (existsSync(LOGS_DIR)) {
-        for (const f of readdirSync(LOGS_DIR)) {
-          if (f.startsWith(logPrefix) && f.endsWith(".log")) rmSync(join(LOGS_DIR, f), { force: true });
-        }
-      }
       return json({ deleted: true, id });
     } catch (e) { return json({ error: e.message }, 500); }
   }
@@ -1432,17 +1430,8 @@ const server = createServer((req, res) => {
     const dir = join(CR_SESSIONS_DIR, id);
     if (!existsSync(dir)) return json({ error: "Not found" }, 404);
     try {
-      // 세션 디렉토리 삭제
+      // 세션 디렉토리 삭제 (logs/는 세션 하위에 포함되어 함께 삭제)
       rmSync(dir, { recursive: true, force: true });
-      // 관련 로그 파일 삭제 (logs/cr-{id}-*.log)
-      const logPrefix = `cr-${id}-`;
-      if (existsSync(LOGS_DIR)) {
-        for (const f of readdirSync(LOGS_DIR)) {
-          if (f.startsWith(logPrefix) && f.endsWith(".log")) {
-            rmSync(join(LOGS_DIR, f), { force: true });
-          }
-        }
-      }
       return json({ deleted: true, id });
     } catch (e) {
       return json({ error: e.message }, 500);
@@ -1541,7 +1530,7 @@ const server = createServer((req, res) => {
         if (!sessionId) return json({ error: "sessionId is required" }, 400);
         const sessionDir = join(SESSIONS_DIR, sessionId);
         if (!existsSync(sessionDir)) return json({ error: "Session not found" }, 404);
-        const r = Math.min(Math.max(parseInt(rounds) || 2, 1), 9);
+        const r = Math.min(Math.max(parseInt(rounds) || 2, 1), 30);
         const script = join(BASE, "orchestrator.sh");
         const child = spawn("bash", [script, "--continue", sessionId, String(r)], {
           cwd: BASE, detached: true, stdio: "ignore",
