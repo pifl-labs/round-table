@@ -101,6 +101,9 @@ if [ ! -x "$CLAUDE_BIN" ]; then
   echo "   또는 CLAUDE_BIN 환경변수로 경로를 지정하세요." >&2
   exit 1
 fi
+# 모델 선택: 기본 Opus 4.7 + 1M 컨텍스트 (Max 플랜 구독에 포함, 추가 비용 0).
+# 비용 절감 시 CLAUDE_MODEL=sonnet 등으로 오버라이드. 200K로 내리려면 [1m] 제거.
+CLAUDE_MODEL="${CLAUDE_MODEL:-claude-opus-4-7[1m]}"
 
 # Codex CLI 탐지 (선택)
 CODEX_BIN="${CODEX_BIN:-$(which codex 2>/dev/null || true)}"
@@ -335,7 +338,7 @@ run_agent() {
 
   local ok=false
   if (cd "$PROJECT_DIR" && CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN" \
-      "$CLAUDE_BIN" --output-format json --tools "WebSearch,Read,Glob,Grep" -p "$prompt") > "$tmp" 2>> "$log"; then
+      "$CLAUDE_BIN" --model "$CLAUDE_MODEL" --output-format json --tools "WebSearch,Read,Glob,Grep" -p "$prompt") > "$tmp" 2>> "$log"; then
     ok=true
   fi
 
@@ -594,7 +597,7 @@ $ALL_CONTEXT
 어떤 데이터/상황이 나타나면 이 결정을 재검토할 것인가"
 
 (cd "$PROJECT_DIR" && CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN" \
-    "$CLAUDE_BIN" --allowedTools "" -p "$SYNTHESIS_PROMPT") \
+    "$CLAUDE_BIN" --model "$CLAUDE_MODEL" --allowedTools "" -p "$SYNTHESIS_PROMPT") \
     > "$SESSION_DIR/final/synthesis.md" 2>> "$LOG_DIR/synthesizer.log"
 
 # 훅 아티팩트 제거 (메모리 저장 출력 등이 파일 끝에 붙는 경우 정리)

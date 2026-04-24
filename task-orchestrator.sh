@@ -60,6 +60,8 @@ for candidate in "$HOME/.local/bin/claude" "/usr/local/bin/claude" "/opt/homebre
   [ -x "$candidate" ] && { CLAUDE_BIN="$candidate"; break; }
 done
 [ -x "${CLAUDE_BIN:-}" ] || { echo "❌ claude CLI를 찾을 수 없습니다." >&2; exit 1; }
+# 모델 선택: 기본 Opus 4.7 + 1M 컨텍스트 (Max 플랜 포함). 오버라이드 예) CLAUDE_MODEL=sonnet
+CLAUDE_MODEL="${CLAUDE_MODEL:-claude-opus-4-7[1m]}"
 
 if [ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]; then
   CLAUDE_CODE_OAUTH_TOKEN=$(grep "CLAUDE_CODE_OAUTH_TOKEN" ~/.zshrc ~/.bashrc ~/.profile 2>/dev/null \
@@ -266,7 +268,7 @@ run_task_agent() {
   if [ "$ok" = false ]; then
     if (cd "$PROJECT_DIR" && \
         CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN" \
-        "$CLAUDE_BIN" --output-format json --tools "WebSearch,Read,Glob,Grep" -p "$prompt") > "$tmp" 2>> "$log"; then
+        "$CLAUDE_BIN" --model "$CLAUDE_MODEL" --output-format json --tools "WebSearch,Read,Glob,Grep" -p "$prompt") > "$tmp" 2>> "$log"; then
       ok=true
       used_claude=true
     fi
@@ -355,7 +357,7 @@ output_type:
 }"
 
   PIPELINE_RAW=$(cd "$PROJECT_DIR" && CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN" \
-    "$CLAUDE_BIN" --tools "Read,Glob,Grep" -p "$PIPELINE_PROMPT" 2>>"$LOG_DIR/generator.log")
+    "$CLAUDE_BIN" --model "$CLAUDE_MODEL" --tools "Read,Glob,Grep" -p "$PIPELINE_PROMPT" 2>>"$LOG_DIR/generator.log")
 
   PIPELINE_JSON=$(echo "$PIPELINE_RAW" | extract_json)
 
@@ -699,7 +701,7 @@ overall_score >= ${RELEASE_THRESHOLD_VALUE} 이면 release_ready: true
 }"
 
   local RATING_RAW; RATING_RAW=$(CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN" \
-    "$CLAUDE_BIN" -p "$RATING_PROMPT" 2>>"$LOG_DIR/rater.log")
+    "$CLAUDE_BIN" --model "$CLAUDE_MODEL" -p "$RATING_PROMPT" 2>>"$LOG_DIR/rater.log")
   local RATING_JSON; RATING_JSON=$(echo "$RATING_RAW" | extract_json)
 
   local RATING_VALID; RATING_VALID=$(python3 -c "
@@ -873,7 +875,7 @@ ${RATING_REPORT}
 - **다음 단계**: 우선순위 순 액션 리스트"
 
 (CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN" \
-  "$CLAUDE_BIN" --allowedTools "" -p "$SYNTHESIS_PROMPT") \
+  "$CLAUDE_BIN" --model "$CLAUDE_MODEL" --allowedTools "" -p "$SYNTHESIS_PROMPT") \
   > "$SESSION_DIR/conclusion.md" 2>>"$LOG_DIR/synthesis.log"
 
 # 훅 아티팩트 제거
