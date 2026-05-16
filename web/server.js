@@ -363,35 +363,18 @@ function getLogs() {
   return logs;
 }
 
-function startDebate({ topic, rounds = 2, agents = "analyst,developer,critic", projectDir }) {
-  const dir = projectDir && existsSync(projectDir) ? projectDir : WORKSPACE_DIR;
-  const r = Math.min(Math.max(parseInt(rounds) || 2, 1), 30);
-  const agentStr = (Array.isArray(agents) ? agents.join(",") : agents).trim() || "analyst,developer,critic";
+// 토론 라운드테이블(orchestrator.sh)은 종료/archive 되었습니다.
+// 웹 트리거는 비활성 — 기존 세션 모니터링 라우트는 그대로 동작합니다.
+const DEBATE_RETIRED = {
+  error: "토론 라운드테이블은 종료되었습니다 (orchestrator.sh archived). 코드 개선은 터미널에서 /code-review 스킬을 사용하세요.",
+};
 
-  const script = join(BASE, "orchestrator.sh");
-  const child = spawn("bash", [script, topic, String(r), agentStr, dir], {
-    cwd: BASE,
-    detached: true,
-    stdio: "ignore",
-  });
-  child.unref();
-  return { started: true, pid: child.pid, rounds: r, agents: agentStr };
+function startDebate() {
+  return DEBATE_RETIRED;
 }
 
-function startDebateWithId({ topic, rounds = 2, agents = "analyst,developer,critic", projectDir, telegramChatId }) {
-  const dir = projectDir && existsSync(projectDir) ? projectDir : WORKSPACE_DIR;
-  const r = Math.min(Math.max(parseInt(rounds) || 2, 1), 30);
-  const agentStr = (Array.isArray(agents) ? agents.join(",") : agents).trim() || "analyst,developer,critic";
-  const sessionId = makeSessionId();
-  const sessionDir = join(SESSIONS_DIR, sessionId);
-  mkdirSync(sessionDir, { recursive: true });
-  if (telegramChatId) writeFileSync(join(sessionDir, ".telegram"), String(telegramChatId));
-  const script = join(BASE, "orchestrator.sh");
-  const child = spawn("bash", [script, topic, String(r), agentStr, dir, sessionId], {
-    cwd: BASE, detached: true, stdio: "ignore",
-  });
-  child.unref();
-  return { started: true, pid: child.pid, sessionId, rounds: r, agents: agentStr };
+function startDebateWithId() {
+  return DEBATE_RETIRED;
 }
 
 // --- SSE Log Streaming ---
@@ -507,77 +490,23 @@ function makeSessionId() {
   return `${now.getFullYear()}${p(now.getMonth() + 1)}${p(now.getDate())}_${p(now.getHours())}${p(now.getMinutes())}${p(now.getSeconds())}`;
 }
 
-function startCodeReview({ topic, context = "", rounds = 2, agentCount = 5, targetQuality = 8.5, projectDir, aiProfile = "claude" }) {
-  const dir = projectDir && existsSync(projectDir) ? projectDir : WORKSPACE_DIR;
-  const r = Math.min(Math.max(parseInt(rounds) || 2, 1), 30);
-  const n = Math.min(Math.max(parseInt(agentCount) || 5, 2), 12);
-  const tq = Math.min(Math.max(parseFloat(targetQuality) || 8.5, 7.0), 10.0);
+// 코드 리뷰 오케스트레이션은 /code-review 스킬(Skill + Agent 툴)로 이관됨.
+// code-review-orchestrator.sh 는 archive. 웹은 읽기 전용 모니터(B4) — 트리거 비활성.
+// 기존/진행 세션의 조회·로그 스트리밍 라우트는 그대로 동작합니다.
+const CODE_REVIEW_RETIRED = {
+  error: "웹에서 코드 리뷰 시작은 종료되었습니다. 터미널 Claude Code 세션에서 /code-review 스킬을 실행하세요. 진행 상황은 이 모니터에 자동 표시됩니다.",
+};
 
-  // 서버가 세션 디렉토리와 meta.json을 즉시 생성 (UI가 바로 표시할 수 있도록)
-  const sessionId = makeSessionId();
-  const sessionDir = join(CR_SESSIONS_DIR, sessionId);
-  mkdirSync(sessionDir, { recursive: true });
-  const meta = {
-    type: "code-review",
-    topic,
-    context,
-    rounds: r,
-    agent_count: n,
-    target_quality: tq,
-    project_dir: dir,
-    started_at: new Date().toISOString(),
-    status: "generating-agents",
-    converged: false,
-    current_round: 0,
-    quality_score: 0,
-    release_ready: false,
-    language: "",
-    framework: "",
-    agents: [],
-    ai_profile: aiProfile,
-  };
-  writeFileSync(join(sessionDir, "meta.json"), JSON.stringify(meta, null, 2));
-
-  // 에이전트 생성만 실행 (run은 UI에서 확인 후 별도 호출)
-  const script = join(BASE, "code-review-orchestrator.sh");
-  const child = spawn("bash", [script, "generate", sessionId], {
-    cwd: BASE, detached: true, stdio: "ignore", env: { ...process.env },
-  });
-  child.unref();
-  return { started: true, pid: child.pid, sessionId, rounds: r, agentCount: n };
+function startCodeReview() {
+  return CODE_REVIEW_RETIRED;
 }
 
-function runCodeReview(sessionId, aiProfile) {
-  const sessionDir = join(CR_SESSIONS_DIR, sessionId);
-  if (!existsSync(sessionDir)) return null;
-  const meta = safeJson(join(sessionDir, "meta.json")) || {};
-  if (meta.status !== "agents-ready") return { error: `잘못된 상태: ${meta.status}` };
-  // AI 프로파일 변경이 있으면 meta.json에 반영
-  const validProfiles = ["claude", "gemini-cli", "codex-cli"];
-  if (aiProfile && validProfiles.includes(aiProfile) && aiProfile !== meta.ai_profile) {
-    writeFileSync(
-      join(sessionDir, "meta.json"),
-      JSON.stringify({ ...meta, ai_profile: aiProfile }, null, 2)
-    );
-  }
-  const script = join(BASE, "code-review-orchestrator.sh");
-  const child = spawn("bash", [script, "run", sessionId], {
-    cwd: BASE, detached: true, stdio: "ignore", env: { ...process.env },
-  });
-  child.unref();
-  return { started: true, pid: child.pid, sessionId, ai_profile: aiProfile || meta.ai_profile };
+function runCodeReview() {
+  return CODE_REVIEW_RETIRED;
 }
 
-function continueCodeReview({ sessionId, rounds = 1 }) {
-  const sessionDir = join(CR_SESSIONS_DIR, sessionId);
-  if (!existsSync(sessionDir)) return null;
-  const r = Math.min(Math.max(parseInt(rounds) || 1, 1), 30);
-  const script = join(BASE, "code-review-orchestrator.sh");
-  const child = spawn("bash", [script, "--continue", sessionId, String(r)], {
-    cwd: BASE, detached: true, stdio: "ignore", env: { ...process.env },
-  });
-  child.unref();
-  return { started: true, pid: child.pid, sessionId, additionalRounds: r };
+function continueCodeReview() {
+  return CODE_REVIEW_RETIRED;
 }
 
 function streamCodeReviewLogs(res, sessionId) {
@@ -1545,26 +1474,8 @@ const server = createServer((req, res) => {
   if (path === "/api/logs/stream") return streamLogs(res);
 
   if (path === "/api/continue" && req.method === "POST") {
-    let body = "";
-    req.on("data", (c) => (body += c));
-    req.on("end", () => {
-      try {
-        const { sessionId, rounds = 2 } = JSON.parse(body);
-        if (!sessionId) return json({ error: "sessionId is required" }, 400);
-        const sessionDir = join(SESSIONS_DIR, sessionId);
-        if (!existsSync(sessionDir)) return json({ error: "Session not found" }, 404);
-        const r = Math.min(Math.max(parseInt(rounds) || 2, 1), 30);
-        const script = join(BASE, "orchestrator.sh");
-        const child = spawn("bash", [script, "--continue", sessionId, String(r)], {
-          cwd: BASE, detached: true, stdio: "ignore",
-        });
-        child.unref();
-        return json({ started: true, pid: child.pid, sessionId, additionalRounds: r });
-      } catch (e) {
-        return json({ error: e.message }, 400);
-      }
-    });
-    return;
+    // 토론 라운드테이블(orchestrator.sh) archive — 트리거 비활성
+    return json(DEBATE_RETIRED, 410);
   }
 
   if (path === "/api/start" && req.method === "POST") {
