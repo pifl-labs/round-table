@@ -834,6 +834,10 @@ async function launchDebate(chatId, params) {
   convState.delete(chatId);
   const { topic, rounds = 2, agents = "analyst,developer,critic", projectDir = null } = params;
   const result = startDebateWithId({ topic, rounds, agents, projectDir, telegramChatId: chatId });
+  if (result.error) {
+    await sendTelegram(chatId, `ℹ️ ${result.error}`);
+    return;
+  }
   await sendTelegram(chatId,
     `🏴‍☠️ *토론 시작!*\n\n📌 주제: ${topic}\n⏱ 라운드: ${rounds}\n👥 에이전트: ${agents}\n🆔 \`${result.sessionId}\`\n\n완료되면 결과를 전달해 드립니다.`
   );
@@ -844,6 +848,10 @@ async function launchReview(chatId, params) {
   convState.delete(chatId);
   const { topic, rounds = 2, agentCount = 5, projectDir = null } = params;
   const result = startCodeReview({ topic, rounds, agentCount, projectDir });
+  if (result.error) {
+    await sendTelegram(chatId, `ℹ️ ${result.error}`);
+    return;
+  }
   writeFileSync(join(CR_SESSIONS_DIR, result.sessionId, ".telegram"), chatId);
   await sendTelegram(chatId,
     `🔍 *코드 리뷰 시작!*\n\n📌 목표: ${topic}\n⏱ 라운드: ${rounds}\n👥 에이전트: ${agentCount}명\n🆔 \`${result.sessionId}\`\n\n에이전트 구성 완료 후 리뷰가 시작됩니다.`
