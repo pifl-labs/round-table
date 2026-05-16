@@ -128,12 +128,13 @@
   /* Sessions list */
   .sessions-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
   .sessions-header h2 { font-size: 14px; color: var(--muted); font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
-  .sessions-list { display: grid; gap: 10px; }
+  .sessions-list { display: grid; gap: 10px; grid-template-columns: minmax(0, 1fr); }
 
   .session-card {
     background: var(--card); border: 1px solid var(--border); border-radius: 12px;
     padding: 16px 20px; cursor: pointer; transition: border-color 0.15s;
     display: flex; align-items: center; gap: 14px;
+    min-width: 0;
   }
   .session-card:hover { border-color: var(--accent); }
   .session-card.active { border-color: var(--accent); background: rgba(6,182,212,0.06); }
@@ -152,7 +153,7 @@
   /* Session detail */
   .session-detail { background: var(--card); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
   .detail-header { padding: 20px 24px; border-bottom: 1px solid var(--border); }
-  .detail-title { font-size: 18px; font-weight: 700; margin-bottom: 8px; }
+  .detail-title { font-size: 18px; font-weight: 700; margin-bottom: 8px; line-height: 1.4; word-break: break-word; overflow-wrap: anywhere; }
   .detail-meta { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
 
   /* Agents panel */
@@ -526,36 +527,23 @@
 </div>
 
 <div class="container">
-  <!-- 새 리뷰 시작 폼 -->
+  <!-- 코드 리뷰 모니터 (B4: 읽기 전용 — 트리거는 /code-review 스킬) -->
   <div class="new-review">
-    <h2>새 코드 리뷰 시작</h2>
-    <div class="form-topic">
-      <textarea id="topic" rows="1" placeholder="리뷰 목표 또는 개선 방향 (예: 전반적 코드 품질 향상 및 릴리즈 준비)" oninput="autoResize(this)"></textarea>
+    <h2>코드 리뷰 모니터</h2>
+    <div style="background:rgba(251,191,36,0.08);border:1px solid rgba(251,191,36,0.25);border-radius:10px;padding:14px 16px;font-size:13px;color:var(--text);line-height:1.7">
+      이 페이지는 <strong>읽기 전용 모니터</strong>입니다. 리뷰 시작은 터미널 Claude Code 세션에서
+      <code style="background:var(--bg);padding:2px 7px;border-radius:5px;color:var(--accent);font-family:monospace">/code-review</code>
+      스킬을 실행하세요. 진행 중인 세션의 라운드·증거(<code style="background:var(--bg);padding:1px 5px;border-radius:4px;font-size:11px">evidence.json</code>)·hook 검증(<code style="background:var(--bg);padding:1px 5px;border-radius:4px;font-size:11px">hook-verdict.json</code>)·수렴 상태가 아래 이력에 실시간 표시됩니다.
     </div>
-    <div class="form-context">
-      <label>배경 컨텍스트 <span style="font-weight:400;text-transform:none;font-size:11px;color:var(--muted)">선택 — 아키텍처 결정, 특별 고려사항 등</span></label>
-      <textarea id="context" placeholder="예: Riverpod 상태관리 사용 중, 최근 리팩토링으로 레이어가 혼재되어 있음..."></textarea>
-    </div>
-    <div class="form-row3">
-      <div class="field-group">
-        <label>라운드</label>
-        <input type="number" id="rounds" value="30" min="1" max="30">
-      </div>
-      <div class="field-group">
-        <label>에이전트 수</label>
-        <input type="number" id="agentCount" value="5" min="2" max="10">
-      </div>
-      <div class="field-group">
-        <label title="이 점수 도달 시 리뷰 종료">목표 점수</label>
-        <input type="number" id="targetQuality" value="8.5" min="7" max="10" step="0.5">
-      </div>
-      <div class="field-group">
-        <label>프로젝트</label>
-        <select id="project"><option value="">로딩 중...</option></select>
-      </div>
-    </div>
-    <div class="form-actions">
-      <button class="btn" id="startBtn" onclick="startReview()">🔍 리뷰 시작</button>
+    <!-- 트리거 폼은 read-only 모니터 전환으로 비활성화. DOM은 초기화 JS 호환 위해 유지. -->
+    <div style="display:none">
+      <textarea id="topic" rows="1"></textarea>
+      <textarea id="context"></textarea>
+      <input type="number" id="rounds" value="5">
+      <input type="number" id="agentCount" value="5">
+      <input type="number" id="targetQuality" value="8.5">
+      <select id="project"><option value="">-</option></select>
+      <button id="startBtn" onclick="startReview()">-</button>
     </div>
   </div>
 
@@ -736,36 +724,8 @@ function statusBadge(status, converged) {
 // ============================================================
 
 async function startReview() {
-  const topic = document.getElementById('topic').value.trim();
-  if (!topic) { alert('리뷰 목표를 입력하세요.'); return; }
-  const context = document.getElementById('context').value.trim();
-  const rounds = parseInt(document.getElementById('rounds').value) || 2;
-  const agentCount = parseInt(document.getElementById('agentCount').value) || 5;
-  const targetQuality = parseFloat(document.getElementById('targetQuality').value) || 8.5;
-  const projectDir = document.getElementById('project').value;
-  const aiProfile = 'claude'; // 초기 fallback — 에이전트별 AI는 agents-ready 단계에서 선택
-
-  const btn = document.getElementById('startBtn');
-  btn.disabled = true; btn.textContent = '⟳ 에이전트 생성 중...';
-
-  try {
-    const res = await fetch('/api/code-review/start', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ topic, context, rounds, agentCount, targetQuality, projectDir, aiProfile }),
-    });
-    if (res.ok) {
-      const { sessionId } = await res.json();
-      btn.textContent = '✓ 생성 시작됨';
-      setTimeout(() => { btn.disabled = false; btn.textContent = '🔍 리뷰 시작'; }, 3000);
-      // 즉시 세션 열기 (meta.json이 서버에서 생성됨)
-      await loadSessions();
-      if (sessionId) openSession(sessionId);
-    }
-  } catch (e) {
-    console.error(e);
-    btn.disabled = false; btn.textContent = '🔍 리뷰 시작';
-  }
+  // B4: 웹 UI는 읽기 전용 모니터로 전환됨. 트리거는 /code-review 스킬이 담당.
+  alert('웹 UI는 읽기 전용 모니터입니다.\n\n터미널 Claude Code 세션에서 /code-review 스킬을 실행하세요.\n진행 상황은 이 페이지의 "리뷰 이력"에 자동 표시됩니다.');
 }
 
 // ============================================================
