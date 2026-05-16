@@ -768,9 +768,8 @@ function renderSessionDetail(session) {
   const framework = session.framework ? `<span class="badge badge-gray">${session.framework}</span>` : '';
   const rds = `<span class="badge badge-gray">R${session.current_round || 0}/${session.rounds || '?'}</span>`;
   const badge = statusBadge(session.status, session.converged);
-  const qs = session.quality_score ? qualityBadge(session.quality_score) : '';
-  const tq = session.target_quality ? `<span class="badge badge-gray" title="목표 품질 점수">목표 ${session.target_quality}/10</span>` : '';
-  document.getElementById('detailMeta').innerHTML = `${badge}${lang}${framework}${rds}${qs}${tq}`;
+  const wt = session.worktree ? `<span class="badge badge-gray" title="격리 워크트리">⎇ ${esc(String(session.worktree).split('/').pop())}</span>` : '';
+  document.getElementById('detailMeta').innerHTML = `${badge}${lang}${framework}${rds}${wt}`;
 
   // Detected issues
   const issues = session.detected_issues || [];
@@ -904,6 +903,23 @@ function renderSessionDetail(session) {
     });
   }
 
+  // 신규 /code-review 스킬: meta.agents 부재 → agents.json 으로 리뷰어 패널 재구성 (옛 로직 출력 덮어씀)
+  if (!session.agents || !session.agents.length) {
+    let revs = [];
+    try { revs = JSON.parse(session.files?.['agents.json'] || '{}').agents || []; } catch {}
+    if (revs.length) {
+      agentsPanel.style.display = '';
+      agentsPanel.innerHTML = `<h3>리뷰어 (${revs.length}) — 코어 3 + 동적</h3>
+        <div class="agents-grid">${revs.map(a => `<div class="agent-tag"><div>
+          <div style="font-weight:600;font-size:12px">${esc(a.id || a.name || '')}</div>
+          ${a.role ? `<div style="font-size:10px;color:var(--accent);margin-top:2px">${esc(a.role)}</div>` : ''}
+          ${a.perspective ? `<div style="font-size:10px;color:var(--muted);margin-top:2px;line-height:1.5">${esc(a.perspective)}</div>` : ''}
+        </div></div>`).join('')}</div>`;
+    } else {
+      agentsPanel.style.display = 'none';
+    }
+  }
+
   // Rounds
   renderRounds(session);
 
@@ -916,27 +932,11 @@ function renderSessionDetail(session) {
       `<div class="md-render">${marked.parse(session.files['conclusion.md'])}</div>`;
   }
 
-  // Continue banner (completed 상태에서만)
+  // B4: 웹은 읽기 전용 모니터 — 계속 리뷰/의견 등록 트리거 비활성 (항상 숨김)
   const continueBanner = document.getElementById('continueBanner');
-  if (session.status === 'completed') {
-    const rounds = session.rounds || 0;
-    const tq = session.target_quality || 10;
-    const qs = session.quality_score ? `품질 ${session.quality_score}/${tq} · ` : '';
-    document.getElementById('continueBannerSub').textContent =
-      `${qs}${rounds}라운드 완료 — 목표 점수(${tq})에 미달이라면 라운드를 추가하세요`;
-    continueBanner.style.display = 'flex';
-  } else {
-    continueBanner.style.display = 'none';
-  }
-
-  // Show feedback panel for running or completed sessions
+  if (continueBanner) continueBanner.style.display = 'none';
   const feedbackPanel = document.getElementById('feedbackPanel');
-  if (['running', 'completed'].includes(session.status)) {
-    feedbackPanel.style.display = '';
-    loadFeedback();
-  } else {
-    feedbackPanel.style.display = 'none';
-  }
+  if (feedbackPanel) feedbackPanel.style.display = 'none';
 }
 
 function qualityBadge(score) {
@@ -983,18 +983,20 @@ function renderRounds(session) {
       section.className = `round-section${isLatest ? ' open' : ''}`;
       section.id = sectionId;
 
-      // 헤더 요약 정보
-      const qualityScore = votes?.overall_quality_score;
+      // 헤더 요약 정보 (신규 스키마)
       const changeCount = Array.isArray(votes?.agreed_changes) ? votes.agreed_changes.length : 0;
-      const releaseReady = votes?.release_ready;
-      const topIssues = Array.isArray(votes?.remaining_issues)
-        ? votes.remaining_issues.slice(0, 3).join(' · ')
-        : '';
+      let hookV = null;
+      try { hookV = JSON.parse(roundFiles['hook-verdict.json'] || '{}'); } catch {}
+      const hookBadge = hookV?.verdict === 'PASS'
+        ? '<span class="badge badge-completed">hook ✅ PASS</span>'
+        : hookV?.verdict === 'FAIL'
+        ? '<span class="badge badge-error">hook ❌ FAIL</span>'
+        : hookV?.verdict
+        ? `<span class="badge badge-gray">hook ${esc(hookV.verdict)}</span>` : '';
 
       const headerBadges = [
-        qualityScore != null ? `<span class="badge badge-gray">품질 ${qualityScore}/10</span>` : '',
         changeCount ? `<span class="badge badge-running">변경 ${changeCount}건</span>` : '',
-        releaseReady ? '<span class="badge badge-converged">릴리즈 가능</span>' : '',
+        hookBadge,
         isConverged ? '<span class="badge badge-converged">수렴 ✓</span>' : '',
       ].filter(Boolean).join('');
 
@@ -1004,11 +1006,10 @@ function renderRounds(session) {
           <span class="round-number">Round ${r}</span>
           <div class="round-acc-meta">
             ${headerBadges}
-            ${topIssues ? `<span class="round-acc-issues">잔존: ${esc(topIssues)}</span>` : ''}
           </div>
         </div>
         <div class="round-acc-body">
-          ${buildRoundHTML(r, votes, conv, convRate, isConverged, roundFiles, session)}
+          ${buildRoundHTML(r, votes, conv, roundFiles, session)}
         </div>`;
 
       container.appendChild(section);
@@ -1121,155 +1122,199 @@ function buildIssueCard(change, type, idx, totalAgents) {
   return `<div class="issue-card sev-${sev}">${header}<div class="issue-body" id="${cardId}">${bodyContent}</div></div>`;
 }
 
-function buildVotesHTML(votes, totalAgents) {
-  if (!votes) return '<div class="empty" style="padding:24px">투표 데이터 없음</div>';
+// 신규 /code-review 스키마: votes.json = {round, all_issues, agreed_changes:[{id,severity,fix}], deferred, rationale}
+function buildVotesHTML(votes) {
+  if (!votes || !Object.keys(votes).length) {
+    return '<div class="empty" style="padding:24px">합의 데이터 대기 중...</div>';
+  }
+  const agreed = Array.isArray(votes.agreed_changes) ? votes.agreed_changes : [];
+  const deferred = Array.isArray(votes.deferred) ? votes.deferred : [];
+  const allIssues = Array.isArray(votes.all_issues) ? votes.all_issues : [];
+  const sevRank = { critical: 0, high: 1, medium: 2, low: 3 };
+  const asText = (x) => typeof x === 'string' ? x : JSON.stringify(x);
 
-  const agreed = votes.agreed_changes || [];
-  const rejected = votes.rejected_changes || [];
-  const qs = votes.overall_quality_score;
-  const scoreColor = qs >= 8 ? 'var(--green)' : qs >= 7 ? 'var(--accent)' : qs >= 6 ? '#f59e0b' : 'var(--red)';
+  const card = (c) => {
+    const sev = String(c.severity || 'medium').toLowerCase();
+    return `<div class="issue-card sev-${sev}">
+      <div class="issue-header" style="cursor:default">
+        <span class="sev-badge sev-${sev}">${sev.toUpperCase()}</span>
+        <span class="issue-title-text">${esc(c.id || c.title || '(미상)')}</span>
+      </div>
+      <div class="issue-body open" style="display:block">${esc(c.fix || c.description || '')}</div>
+    </div>`;
+  };
 
-  // 이슈당 평균 기권 수 (새 스키마에 abstain_votes 있을 때만 표시)
-  const allChanges = [...agreed, ...rejected];
-  const hasAbstainData = allChanges.some(c => c.abstain_votes != null);
-  const avgAbstain = hasAbstainData && allChanges.length
-    ? Math.round(allChanges.reduce((s, c) => s + (c.abstain_votes || 0), 0) / allChanges.length)
-    : null;
+  const agreedHTML = agreed.length
+    ? `<div class="vote-section-title" style="color:var(--green)">✅ 합의된 변경 (${agreed.length}건)</div>` +
+      [...agreed].sort((a, b) => (sevRank[a.severity] ?? 9) - (sevRank[b.severity] ?? 9)).map(card).join('')
+    : '<div class="empty" style="padding:16px">합의된 변경 없음 — 리뷰어가 고칠 것을 찾지 못함 (수렴 후보)</div>';
 
-  const overview = `<div class="vote-overview">
-    <div class="vo-stat"><div class="vo-val" style="color:${scoreColor}">${qs || '?'}</div><div class="vo-label">품질 점수 / 10</div></div>
-    <div class="vo-stat"><div class="vo-val" style="color:var(--green)">${agreed.length}</div><div class="vo-label">채택 변경</div></div>
-    <div class="vo-stat"><div class="vo-val" style="color:var(--muted)">${rejected.length}</div><div class="vo-label">기각 변경</div></div>
-    <div class="vo-stat"><div class="vo-val">${votes.release_ready ? '✅' : '❌'}</div><div class="vo-label">릴리즈 가능</div></div>
-  </div>
-  ${avgAbstain != null ? `<div style="font-size:11px;color:var(--muted);padding:4px 2px;margin-top:2px">⚪ 이슈당 평균 기권 ${avgAbstain}명 — 전문 영역 외 에이전트는 기권 처리, <strong style="color:var(--text)">참여자 기준 과반수</strong>로 채택 결정</div>` : ''}`;
-
-  const summary = votes.summary
-    ? `<div style="font-size:12px;color:var(--muted);padding:8px 12px;background:rgba(255,255,255,0.03);border-radius:8px;line-height:1.6">${esc(votes.summary)}</div>`
+  const rationale = votes.rationale
+    ? `<div style="font-size:12px;color:var(--muted);padding:8px 12px;background:rgba(255,255,255,0.03);border-radius:8px;line-height:1.6;margin-top:8px">📋 ${esc(votes.rationale)}</div>`
     : '';
 
-  let agreedHTML = '';
-  if (agreed.length) {
-    agreedHTML = `<div class="vote-section-title" style="color:var(--green)">✅ 채택된 변경사항 (${agreed.length}건)</div>` +
-      agreed.map((c, i) => buildIssueCard(c, 'agreed', i, totalAgents)).join('');
-  }
+  const issuesHTML = allIssues.length
+    ? `<div class="vote-section-title" style="color:var(--muted)">발굴 이슈 전체 (${allIssues.length})</div>
+       <div style="font-size:12px;color:var(--muted);line-height:1.9">${allIssues.map(i => esc(asText(i))).join(' · ')}</div>`
+    : '';
 
-  let rejectedHTML = '';
-  if (rejected.length) {
-    rejectedHTML = `<div class="vote-section-title" style="color:var(--muted)">❌ 기각된 변경사항 (${rejected.length}건)</div>` +
-      rejected.map((c, i) => buildIssueCard(c, 'rejected', i, totalAgents)).join('');
-  }
+  const deferredHTML = deferred.length
+    ? `<div class="vote-section-title" style="color:var(--muted)">⏸ 보류 (${deferred.length}건)</div>
+       <div style="font-size:12px;color:var(--muted);line-height:1.8">${deferred.map(d => '• ' + esc(asText(d))).join('<br>')}</div>`
+    : '';
 
-  return `<div class="vote-analysis">${overview}${summary}${agreedHTML}${rejectedHTML}</div>`;
+  return `<div class="vote-analysis">${agreedHTML}${rationale}${issuesHTML}${deferredHTML}</div>`;
 }
 
-function buildRoundHTML(r, votes, conv, convRate, isConverged, roundFiles, session) {
+// evidence.json 렌더 — 실측 증거 원문
+function buildEvidenceHTML(e) {
+  if (!e || !Object.keys(e).length) {
+    return '<div class="empty" style="padding:24px">증거(evidence.json) 대기 중...</div>';
+  }
+  const row = (label, s) => {
+    if (!s || typeof s !== 'object') return '';
+    const ok = s.exit_code === 0;
+    const ran = s.ran !== false;
+    const color = !ran ? 'var(--muted)' : ok ? 'var(--green)' : 'var(--red)';
+    const mark = !ran ? '–' : ok ? '✅' : '❌';
+    const nums = [
+      s.passed != null ? `${s.passed} 통과` : '',
+      s.failed ? `${s.failed} 실패` : '',
+      s.issues != null ? `이슈 ${s.issues}` : '',
+      s.exit_code != null ? `exit ${s.exit_code}` : '',
+    ].filter(Boolean).join(' · ');
+    return `<div style="display:flex;gap:10px;align-items:baseline;padding:6px 0;border-bottom:1px solid var(--border)">
+      <span style="width:78px;font-weight:600;color:var(--muted);font-size:12px">${label}</span>
+      <span style="color:${color}">${mark}</span>
+      <span style="font-size:12px;color:var(--text)">${esc(s.command || '')}</span>
+      <span style="font-size:11px;color:var(--muted);margin-left:auto">${esc(nums)}</span>
+    </div>`;
+  };
+  const ra = e.reality_audit || {};
+  const raColor = ra.verdict === 'PASS' ? 'var(--green)' : ra.verdict ? 'var(--red)' : 'var(--muted)';
+  const tail = e.test?.stdout_tail
+    ? `<div style="margin-top:8px"><div style="font-size:11px;color:var(--muted);margin-bottom:3px">test stdout tail</div>
+       <pre style="font-size:11px;background:var(--bg);padding:8px;border-radius:6px;overflow-x:auto;white-space:pre-wrap">${esc(e.test.stdout_tail)}</pre></div>`
+    : '';
+  return `<div style="padding:4px 2px">
+    ${row('build', e.build)}${row('test', e.test)}${row('lint', e.lint)}
+    <div style="display:flex;gap:10px;align-items:baseline;padding:6px 0">
+      <span style="width:78px;font-weight:600;color:var(--muted);font-size:12px">reality</span>
+      <span style="color:${raColor}">${ra.verdict || '–'}</span>
+      <span style="font-size:11px;color:var(--muted)">${esc(ra.note || '')} ${ra.stubs_detected != null ? `· stub ${ra.stubs_detected}` : ''}</span>
+    </div>
+    ${tail}
+    <div style="font-size:11px;color:var(--muted);margin-top:6px">생성: ${esc(e.generated_at || '?')}</div>
+  </div>`;
+}
+
+// hook-verdict.json 렌더 — harness 독립 검증 판정 (신뢰 핵심)
+function buildHookVerdictHTML(h) {
+  if (!h || !h.verdict) {
+    return '<div class="empty" style="padding:24px">hook 검증(hook-verdict.json) 대기 중...</div>';
+  }
+  const pass = h.verdict === 'PASS';
+  const color = pass ? 'var(--green)' : h.verdict === 'FAIL' ? 'var(--red)' : 'var(--muted)';
+  const icon = pass ? '✅' : h.verdict === 'FAIL' ? '❌' : 'ℹ️';
+  return `<div style="padding:8px 2px">
+    <div style="display:flex;align-items:center;gap:10px">
+      <span style="font-size:28px">${icon}</span>
+      <div>
+        <div style="font-size:18px;font-weight:700;color:${color}">hook 판정: ${esc(h.verdict)}</div>
+        <div style="font-size:11px;color:var(--muted)">${esc(h.checked_by || 'code-review-gate.sh')} · ${esc(h.checked_at || '')}</div>
+      </div>
+    </div>
+    <div style="margin-top:10px;font-size:13px;color:var(--text);line-height:1.6;background:var(--bg);padding:10px 12px;border-radius:8px">${esc(h.reason || '')}</div>
+    <div style="font-size:11px;color:var(--muted);margin-top:8px">harness가 워크트리에서 테스트를 독립 재실행해 모델 주장을 교차검증한 결과입니다.</div>
+  </div>`;
+}
+
+// convergence.json 렌더
+function buildConvHTML(conv) {
+  if (!conv || !Object.keys(conv).length) {
+    return '<div class="empty" style="padding:24px">수렴 판정(convergence.json) 대기 중...</div>';
+  }
+  const converged = !!conv.converged;
+  const cls = converged ? 'converged' : 'not-converged';
+  const icon = converged ? '✅' : '🔄';
+  const stat = (label, val, color) =>
+    `<div class="vo-stat"><div class="vo-val" style="color:${color || 'var(--text)'}">${val}</div><div class="vo-label">${label}</div></div>`;
+  return `<div class="conv-card ${cls}">
+    <div class="conv-title">${icon} ${converged ? '수렴 완료 — 정상 종료' : '미수렴 — 다음 라운드 진행'}</div>
+    <div class="vote-overview" style="margin-top:10px">
+      ${stat('신규 CRIT/HIGH', conv.critical_high_found ?? '?', (conv.critical_high_found ? 'var(--red)' : 'var(--green)'))}
+      ${stat('적용 변경', conv.agreed_applied ?? '?', 'var(--accent)')}
+      ${stat('수렴', converged ? '✓' : '–', converged ? 'var(--green)' : 'var(--muted)')}
+      ${stat('증거 통과 주장', conv.claimed_evidence_pass ? '✓' : '–', conv.claimed_evidence_pass ? 'var(--green)' : 'var(--muted)')}
+    </div>
+    <div style="font-size:11px;color:var(--muted);margin-top:8px">수렴 조건: 신규 CRITICAL/HIGH 0건 + 적용 변경 0건 (리뷰어가 다시 훑어도 고칠 게 없는 깨끗한 라운드)</div>
+  </div>`;
+}
+
+function buildRoundHTML(r, votes, conv, roundFiles, session) {
   const panelId = (name) => `r${r}-${name}`;
 
-  // Agent IDs from session
-  const agentIds = (session.agents || []).map(a => a.id);
-  const agentNames = {};
-  (session.agents || []).forEach(a => { agentNames[a.id] = a.name; });
+  // 리뷰어 산출물: round-N 의 .md 중 code-result.md / conclusion.md 제외 = 리뷰어 파일
+  const reviewerFiles = Object.keys(roundFiles)
+    .filter(f => f.endsWith('.md') && f !== 'code-result.md' && f !== 'conclusion.md')
+    .sort();
+  const reviewers = reviewerFiles.map(f => ({ id: f.replace(/\.md$/, ''), content: roundFiles[f] || '' }));
 
-  // Agents review — selector tabs + full-width panels
-  const agentData = agentIds.map(id => ({
-    id,
-    name: agentNames[id] || id,
-    role: (session.agents || []).find(a => a.id === id)?.role || '',
-    content: roundFiles[`${id}.md`] || '',
-  }));
-
-  // Round summary strip (chips with 1-line preview)
-  const summaryChips = agentData.map((a, i) => {
-    const preview = a.content.replace(/#+\s/g, '').replace(/\n/g, ' ').replace(/\*\*/g, '').slice(0, 80);
-    return `<div class="agent-summary-chip" onclick="selectAgentPanel('${panelId('sel')}','${panelId('panels')}','${a.id}')">
-      <div>
-        <div class="chip-name">${esc(a.name)}</div>
-        <div class="chip-preview">${esc(preview) || '분석 중...'}</div>
-      </div>
-    </div>`;
-  }).join('');
-
-  // Agent selector tabs
-  const selectorTabs = agentData.map((a, i) =>
+  const selectorTabs = reviewers.map((a, i) =>
     `<button class="agent-btn${i === 0 ? ' active' : ''}" data-agent="${a.id}"
-       onclick="selectAgentPanel('${panelId('sel')}','${panelId('panels')}','${a.id}')">${esc(a.name)}</button>`
+       onclick="selectAgentPanel('${panelId('sel')}','${panelId('panels')}','${a.id}')">${esc(a.id)}</button>`
   ).join('');
 
-  // Full-width agent panels
-  const agentPanels = agentData.map((a, i) => {
+  const reviewerPanels = reviewers.map((a, i) => {
     const body = a.content
       ? `<div class="md-render">${marked.parse(a.content)}</div>`
-      : '<div class="empty" style="padding:40px"><div class="icon">⏳</div>분석 대기 중...</div>';
+      : '<div class="empty" style="padding:40px">분석 대기 중...</div>';
     return `<div class="agent-full-panel${i === 0 ? ' active' : ''}" data-agent="${a.id}">
-      <div class="agent-panel-header">
-        <div>
-          <div class="agent-panel-name">${esc(a.name)}</div>
-          ${a.role ? `<div class="agent-panel-role">${esc(a.role)}</div>` : ''}
-        </div>
-      </div>
+      <div class="agent-panel-header"><div class="agent-panel-name">${esc(a.id)}</div></div>
       <div class="agent-panel-body">${body}</div>
     </div>`;
   }).join('');
 
-  const agentReviewsHTML = `<div class="agent-review-wrap">
-    <div class="round-summary">${summaryChips || '<span style="color:var(--muted);font-size:12px">에이전트 분석 대기 중...</span>'}</div>
-    <div class="agent-selector" id="${panelId('sel')}">${selectorTabs}</div>
-    <div class="agent-panels" id="${panelId('panels')}">${agentPanels}</div>
-  </div>`;
+  const reviewersHTML = reviewers.length
+    ? `<div class="agent-review-wrap">
+        <div class="agent-selector" id="${panelId('sel')}">${selectorTabs}</div>
+        <div class="agent-panels" id="${panelId('panels')}">${reviewerPanels}</div>
+      </div>`
+    : '<div class="empty" style="padding:24px">리뷰어 산출물 대기 중...</div>';
 
-  // Votes content
-  const votesHTML = buildVotesHTML(votes, agentIds.length);
+  const votesHTML = buildVotesHTML(votes);
 
-  // Applied changes
-  const applyContent = roundFiles['apply-changes.md'] || '';
-  const applyHTML = applyContent
-    ? `<div class="md-render">${marked.parse(applyContent)}</div>`
-    : '<div class="empty" style="padding:24px"><div class="icon">⏳</div>변경 적용 대기 중...</div>';
+  // 구현 결과 (/code 위임)
+  const codeResult = roundFiles['code-result.md'] || '';
+  const codeHTML = codeResult
+    ? `<div class="md-render">${marked.parse(codeResult)}</div>`
+    : '<div class="empty" style="padding:24px">구현 결과(code-result.md) 대기 중...</div>';
 
-  // Code reviewer
-  const reviewerContent = roundFiles['code-reviewer.md'] || '';
-  const reviewerHTML = reviewerContent
-    ? `<div class="md-render">${marked.parse(reviewerContent)}</div>`
-    : '<div class="empty" style="padding:24px"><div class="icon">⏳</div>코드 리뷰 대기 중...</div>';
+  // 증거 / hook / 수렴
+  let evidence = null, hookV = null;
+  try { evidence = JSON.parse(roundFiles['evidence.json'] || '{}'); } catch {}
+  try { hookV = JSON.parse(roundFiles['hook-verdict.json'] || '{}'); } catch {}
+  const evidenceHTML = buildEvidenceHTML(evidence);
+  const hookHTML = buildHookVerdictHTML(hookV);
+  const convHTML = buildConvHTML(conv);
 
-  // Convergence
-  let convHTML = '';
-  if (conv && Object.keys(conv).length > 0) {
-    const cls = isConverged ? 'converged' : 'not-converged';
-    const icon = isConverged ? '✅' : '🔄';
-    const issues = conv.remaining_critical_issues || [];
-    convHTML = `<div class="conv-card ${cls}">
-      <div class="conv-title">${icon} ${isConverged ? '수렴 완료' : '미수렴 — 다음 라운드 필요'}</div>
-      <div class="convergence-bar"><div class="convergence-fill" style="width:${convRate}%"></div></div>
-      <div style="font-size:11px;color:var(--muted);margin-top:4px">수렴도 ${convRate}% | 품질 ${conv.quality_score || '?'}/10</div>
-      <div class="conv-desc" style="margin-top:8px">${esc(conv.consensus_summary || '')}</div>
-      ${issues.length ? `<div style="margin-top:8px;font-size:12px;color:var(--red)"><strong>잔존 이슈:</strong> ${issues.map(i => esc(i)).join(', ')}</div>` : ''}
-    </div>`;
-  }
+  const changeCount = Array.isArray(votes?.agreed_changes) ? votes.agreed_changes.length : 0;
+  const hookTabMark = hookV?.verdict === 'PASS' ? ' ✅' : hookV?.verdict === 'FAIL' ? ' ❌' : '';
 
-  return `<div class="round-header">
-    <span class="round-number">Round ${r}</span>
-    <div class="round-badges">
-      ${votes ? `<span class="badge badge-gray">품질 ${votes.overall_quality_score || '?'}/10</span>` : ''}
-      ${votes?.release_ready ? '<span class="badge badge-converged">릴리즈 가능</span>' : ''}
-      ${(votes?.agreed_changes?.length) ? `<span class="badge badge-running">변경 ${votes.agreed_changes.length}건</span>` : ''}
-    </div>
+  return `<div class="sub-tabs">
+    <div class="sub-tab active" onclick="switchSubTab(this,'${panelId('reviewers')}')">리뷰어 (${reviewers.length})</div>
+    <div class="sub-tab" onclick="switchSubTab(this,'${panelId('votes')}')">합의 변경 (${changeCount})</div>
+    <div class="sub-tab" onclick="switchSubTab(this,'${panelId('code')}')">구현 결과</div>
+    <div class="sub-tab" onclick="switchSubTab(this,'${panelId('evidence')}')">증거</div>
+    <div class="sub-tab" onclick="switchSubTab(this,'${panelId('hook')}')">hook 검증${hookTabMark}</div>
+    <div class="sub-tab" onclick="switchSubTab(this,'${panelId('conv')}')">수렴</div>
   </div>
-  <div class="sub-tabs">
-    <div class="sub-tab active" onclick="switchSubTab(this,'${panelId('reviews')}')">에이전트 리뷰 (${agentIds.length})</div>
-    <div class="sub-tab" onclick="switchSubTab(this,'${panelId('votes')}')">투표 결과</div>
-    <div class="sub-tab" onclick="switchSubTab(this,'${panelId('apply')}')">적용된 변경</div>
-    <div class="sub-tab" onclick="switchSubTab(this,'${panelId('reviewer')}')">코드 리뷰어</div>
-    ${conv ? `<div class="sub-tab" onclick="switchSubTab(this,'${panelId('conv')}')">수렴 확인</div>` : ''}
-  </div>
-  <div class="sub-panel active" id="${panelId('reviews')}">
-    ${agentReviewsHTML}
-  </div>
+  <div class="sub-panel active" id="${panelId('reviewers')}">${reviewersHTML}</div>
   <div class="sub-panel" id="${panelId('votes')}">${votesHTML}</div>
-  <div class="sub-panel" id="${panelId('apply')}">${applyHTML}</div>
-  <div class="sub-panel" id="${panelId('reviewer')}">${reviewerHTML}</div>
-  ${conv ? `<div class="sub-panel" id="${panelId('conv')}">${convHTML}</div>` : ''}`;
+  <div class="sub-panel" id="${panelId('code')}">${codeHTML}</div>
+  <div class="sub-panel" id="${panelId('evidence')}">${evidenceHTML}</div>
+  <div class="sub-panel" id="${panelId('hook')}">${hookHTML}</div>
+  <div class="sub-panel" id="${panelId('conv')}">${convHTML}</div>`;
 }
 
 function selectAgentPanel(selectorId, panelsId, agentId) {
