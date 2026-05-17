@@ -300,17 +300,8 @@
   .sev-badge.sev-medium { background: rgba(234,179,8,0.2); color: #eab308; }
   .sev-badge.sev-low { background: rgba(107,114,128,0.2); color: #9ca3af; }
   .issue-title-text { flex: 1; font-size: 13px; font-weight: 600; color: var(--text); min-width: 0; }
-  .vote-tally { font-size: 12px; color: var(--muted); flex-shrink: 0; white-space: nowrap; }
   .issue-body { padding: 0 14px 12px; display: none; }
   .issue-body.open { display: block; }
-  .issue-why { font-size: 12px; color: var(--muted); line-height: 1.6; padding: 8px 0; border-bottom: 1px solid var(--border); margin-bottom: 8px; }
-  .issue-proposer { font-size: 11px; color: #6b7280; margin-bottom: 4px; }
-  .av-grid { display: flex; flex-direction: column; gap: 4px; }
-  .av-row { display: grid; grid-template-columns: 20px 140px 1fr; gap: 8px; align-items: baseline; font-size: 11px; padding: 3px 0; }
-  .av-icon { text-align: center; font-size: 13px; }
-  .av-agent { color: var(--text); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .av-reason { color: var(--muted); line-height: 1.4; }
-  .toggle-icon { font-size: 10px; color: var(--muted); flex-shrink: 0; transition: transform 0.2s; }
 
   /* Convergence card */
   .conv-card { padding: 14px 16px; border-radius: 10px; border: 1px solid var(--border); margin-bottom: 12px; }
@@ -439,53 +430,6 @@
   .issues-tags { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
   .issue-tag { padding: 3px 10px; background: rgba(249,115,22,0.12); color: var(--orange); border-radius: 99px; font-size: 11px; font-weight: 600; }
 
-  /* Quality score */
-  .quality-score { font-size: 28px; font-weight: 800; }
-  .quality-score.low { color: var(--red); }
-  .quality-score.mid { color: var(--yellow); }
-  .quality-score.high { color: var(--green); }
-
-  /* Continue button area */
-  /* Continue banner */
-  .continue-banner {
-    margin: 0 24px 16px; padding: 14px 20px;
-    background: rgba(139,92,246,0.08); border: 1px solid rgba(139,92,246,0.3);
-    border-radius: 10px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px;
-  }
-  .continue-banner-left { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
-  .continue-banner-icon { font-size: 18px; color: var(--green); }
-  .continue-banner-title { font-size: 13px; font-weight: 700; color: var(--text); }
-  .continue-banner-sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
-  .continue-banner-body { flex: 1 1 300px; }
-  .continue-banner-body textarea {
-    width: 100%; resize: vertical; min-height: 48px; max-height: 96px;
-    background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
-    color: var(--text); font-size: 12px; line-height: 1.5; padding: 8px 12px;
-    font-family: inherit;
-  }
-  .continue-banner-body textarea:focus { outline: none; border-color: rgba(139,92,246,0.5); }
-  .continue-banner-body textarea::placeholder { color: var(--muted); }
-  .continue-banner-right { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
-  .continue-banner input[type="number"] { width: 70px; padding: 7px 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; color: var(--text); text-align: center; font-size: 14px; }
-
-  /* Feedback panel */
-  .feedback-panel { padding: 16px 24px; border-bottom: 1px solid var(--border); background: rgba(99,102,241,0.04); }
-  .feedback-panel-header { font-size: 12px; font-weight: 600; color: var(--purple); letter-spacing: 0.04em; text-transform: uppercase; margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
-  .feedback-panel-hint { font-weight: 400; color: var(--muted); font-size: 11px; text-transform: none; letter-spacing: 0; }
-  .feedback-input-row { display: flex; gap: 10px; margin-bottom: 10px; }
-  .feedback-input-row textarea { flex: 1; padding: 10px 14px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-size: 13px; resize: none; min-height: 54px; max-height: 120px; line-height: 1.5; font-family: inherit; transition: border-color 0.15s; }
-  .feedback-input-row textarea:focus { outline: none; border-color: var(--purple); }
-  .feedback-input-row textarea::placeholder { color: var(--muted); }
-  .btn-feedback { padding: 8px 16px; background: var(--purple); color: #fff; border: none; border-radius: 8px; cursor: pointer; font-size: 13px; font-weight: 700; white-space: nowrap; align-self: flex-end; transition: opacity 0.15s; }
-  .btn-feedback:hover { opacity: 0.85; }
-  .feedback-list { display: flex; flex-direction: column; gap: 6px; }
-  .feedback-item { display: flex; align-items: flex-start; gap: 10px; padding: 8px 12px; background: var(--bg); border: 1px solid rgba(99,102,241,0.2); border-radius: 8px; }
-  .feedback-item.used { opacity: 0.6; }
-  .feedback-item-text { flex: 1; font-size: 12px; line-height: 1.5; color: var(--text); }
-  .feedback-item-meta { font-size: 11px; color: var(--muted); margin-top: 2px; }
-  .feedback-item-del { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 13px; padding: 2px 5px; border-radius: 4px; line-height: 1; flex-shrink: 0; }
-  .feedback-item-del:hover { color: var(--red); }
-
   /* Empty state */
   .empty { text-align: center; padding: 48px 24px; color: var(--muted); font-size: 14px; }
   .empty .icon { font-size: 40px; margin-bottom: 12px; opacity: 0.4; }
@@ -568,33 +512,6 @@
       <div class="agents-panel" id="agentsPanel">
         <h3>참여 에이전트</h3>
         <div class="agents-grid" id="agentsGrid"></div>
-      </div>
-
-      <div class="feedback-panel" id="feedbackPanel" style="display:none">
-        <div class="feedback-panel-header">💬 의견 등록 <span class="feedback-panel-hint">다음 라운드에 반영됩니다</span></div>
-        <div class="feedback-input-row">
-          <textarea id="feedbackText" placeholder="'보안 측면에서 더 깊이 분석해주세요', '이 패턴은 긍정적으로 재검토해주세요' 등..." oninput="autoResizeFeedback(this)"></textarea>
-          <button class="btn-feedback" onclick="submitFeedback()">등록</button>
-        </div>
-        <div id="feedbackList" class="feedback-list"></div>
-      </div>
-
-      <div class="continue-banner" id="continueBanner" style="display:none">
-        <div class="continue-banner-left">
-          <span class="continue-banner-icon">✓</span>
-          <div>
-            <div class="continue-banner-title">리뷰 완료</div>
-            <div class="continue-banner-sub" id="continueBannerSub">더 깊이 분석하려면 라운드를 추가하세요</div>
-          </div>
-        </div>
-        <div class="continue-banner-body">
-          <textarea id="continueDirections" placeholder="추가 의견 (선택사항) — '보안 취약점을 더 깊이 분석해주세요', '성능 개선에 집중해주세요' 등..." rows="2"></textarea>
-        </div>
-        <div class="continue-banner-right">
-          <span style="font-size:12px;color:var(--muted)">추가 라운드</span>
-          <input type="number" id="addRounds" value="1" min="1" max="30">
-          <button class="btn btn-sm btn-purple" onclick="continueReview()">⟳ 계속 리뷰</button>
-        </div>
       </div>
 
       <div class="tabs">
@@ -932,16 +849,6 @@ function renderSessionDetail(session) {
       `<div class="md-render">${marked.parse(session.files['conclusion.md'])}</div>`;
   }
 
-  // B4: 웹은 읽기 전용 모니터 — 계속 리뷰/의견 등록 트리거 비활성 (항상 숨김)
-  const continueBanner = document.getElementById('continueBanner');
-  if (continueBanner) continueBanner.style.display = 'none';
-  const feedbackPanel = document.getElementById('feedbackPanel');
-  if (feedbackPanel) feedbackPanel.style.display = 'none';
-}
-
-function qualityBadge(score) {
-  const cls = score >= 8 ? 'high' : score >= 6 ? 'mid' : 'low';
-  return `<span class="quality-score ${cls}" style="font-size:18px">${score}/10</span>`;
 }
 
 function renderRounds(session) {
@@ -973,7 +880,6 @@ function renderRounds(session) {
     let conv = null;
     try { conv = JSON.parse(roundFiles['convergence.json'] || '{}'); } catch {}
 
-    const convRate = conv ? Math.round((conv.convergence_rate || 0) * 100) : 0;
     const isConverged = conv?.converged || false;
 
     const sectionId = `round-section-${r}`;
@@ -1022,104 +928,6 @@ function toggleRound(sectionId) {
   const section = document.getElementById(sectionId);
   if (!section) return;
   section.classList.toggle('open');
-}
-
-function toggleIssueCard(id) {
-  const body = document.getElementById(id);
-  const icon = document.getElementById('ti-' + id);
-  if (!body) return;
-  const isOpen = body.classList.toggle('open');
-  if (icon) icon.style.transform = isOpen ? 'rotate(180deg)' : '';
-}
-
-function buildIssueCard(change, type, idx, totalAgents) {
-  const sev = change.severity || (type === 'agreed' ? 'medium' : 'low');
-  const agentVotes = change.agent_votes || [];
-  const supporters = change.supporters || [];
-  const hasDetail = agentVotes.length > 0 || change.why_critical || change.proposer || change.description;
-  const cardId = 'ic-' + type + '-' + idx + '-' + Math.random().toString(36).slice(2, 7);
-
-  // 참여 기반 투표 표시: "찬성/참여표 (기권N)" — participating_votes 있으면 사용, 없으면 전체 기준 fallback
-  const agreeCount = change.votes || (type === 'agreed' ? supporters.length : 0);
-  const participatingVotes = change.participating_votes != null
-    ? change.participating_votes
-    : (agentVotes.filter(v => v.stance !== 'abstain').length || totalAgents || null);
-  const abstainCount = change.abstain_votes != null
-    ? change.abstain_votes
-    : agentVotes.filter(v => v.stance === 'abstain').length;
-  const tallyText = participatingVotes != null
-    ? `${agreeCount}/${participatingVotes}표${abstainCount > 0 ? ` (기권${abstainCount})` : ''}`
-    : `${agreeCount}표`;
-
-  const peerReviewBadge = change.peer_review_result === 'rejected_by_peer'
-    ? `<span style="font-size:10px;background:rgba(239,68,68,0.15);color:var(--red);border-radius:4px;padding:1px 6px;font-weight:600;margin-left:4px">동료검토↓</span>`
-    : change.peer_reviewed
-    ? `<span style="font-size:10px;background:rgba(20,184,166,0.12);color:var(--teal);border-radius:4px;padding:1px 6px;font-weight:600;margin-left:4px">동료검토↑</span>`
-    : '';
-
-  const header = `<div class="issue-header" onclick="toggleIssueCard('${cardId}')" ${!hasDetail ? 'style="cursor:default"' : ''}>
-    <span class="sev-badge sev-${sev}">${sev.toUpperCase()}</span>
-    <span class="issue-title-text">${esc(change.title || '')}${peerReviewBadge}</span>
-    <span class="vote-tally">${tallyText}</span>
-    ${hasDetail ? '<span class="toggle-icon" id="ti-' + cardId + '">▼</span>' : ''}
-  </div>`;
-
-  if (!hasDetail) {
-    return `<div class="issue-card sev-${sev}">${header}</div>`;
-  }
-
-  let bodyContent = '';
-  if (change.proposer) {
-    bodyContent += `<div class="issue-proposer">💡 제안: <strong>${esc(change.proposer)}</strong></div>`;
-  }
-  if (change.why_critical) {
-    bodyContent += `<div class="issue-why">${esc(change.why_critical)}</div>`;
-  } else if (change.description) {
-    bodyContent += `<div class="issue-why">${esc(change.description)}</div>`;
-  } else if (change.reason) {
-    bodyContent += `<div class="issue-why" style="color:#6b7280">${esc(change.reason)}</div>`;
-  }
-
-  // 동료 검토 배지
-  if (change.peer_reviewed) {
-    const prResult = change.peer_review_result;
-    const prSummary = change.peer_review_summary || '';
-    const prColor = prResult === 'confirmed' ? 'var(--teal)' : prResult === 'rejected_by_peer' ? 'var(--red)' : '#f59e0b';
-    const prLabel = prResult === 'confirmed' ? '동료 검토 확정' : prResult === 'rejected_by_peer' ? '동료 검토 기각' : '동료 검토 완료';
-    bodyContent += `<div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;padding:5px 10px;background:rgba(20,184,166,0.07);border:1px solid rgba(20,184,166,0.2);border-radius:6px">
-      <span style="font-size:11px;font-weight:700;color:${prColor};text-transform:uppercase;letter-spacing:0.04em">🔍 ${prLabel}</span>
-      ${prSummary ? `<span style="font-size:11px;color:var(--muted)">${esc(prSummary)}</span>` : ''}
-    </div>`;
-  }
-
-  if (agentVotes.length > 0) {
-    // abstain은 맨 아래로 정렬 (agree → oppose → abstain), 동료검토는 agree/oppose 내에서 하단
-    const sorted = [...agentVotes].sort((a, b) => {
-      const order = { agree: 0, oppose: 1, abstain: 2 };
-      const oa = (order[a.stance] ?? 3) * 10 + (a.peer_review ? 1 : 0);
-      const ob = (order[b.stance] ?? 3) * 10 + (b.peer_review ? 1 : 0);
-      return oa - ob;
-    });
-    const rows = sorted.map(av => {
-      const icon = av.stance === 'agree' ? '✅' : av.stance === 'oppose' ? '❌' : '⚪';
-      const stanceColor = av.stance === 'agree' ? 'var(--green)' : av.stance === 'oppose' ? 'var(--red)' : 'var(--muted)';
-      const isAbstain = av.stance === 'abstain';
-      const peerBadge = av.peer_review ? `<span style="font-size:9px;background:rgba(20,184,166,0.15);color:var(--teal);border-radius:4px;padding:1px 5px;margin-left:4px;font-weight:600">검토</span>` : '';
-      return `<div class="av-row" style="${isAbstain ? 'opacity:0.45' : ''}">
-        <span class="av-icon">${icon}</span>
-        <span class="av-agent" style="color:${stanceColor}">${esc(av.agent || '')}${peerBadge}</span>
-        <span class="av-reason">${esc(av.reason || '')}</span>
-      </div>`;
-    }).join('');
-    const participateLabel = participatingVotes != null
-      ? `에이전트 투표 (참여 ${participatingVotes}명 / 기권 ${abstainCount}명)`
-      : '에이전트 투표';
-    bodyContent += `<div style="font-size:11px;font-weight:600;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:0.04em">${participateLabel}</div><div class="av-grid">${rows}</div>`;
-  } else if (supporters.length > 0) {
-    bodyContent += `<div style="font-size:11px;color:var(--muted)">✅ 찬성: ${supporters.map(s => esc(s)).join(', ')}</div>`;
-  }
-
-  return `<div class="issue-card sev-${sev}">${header}<div class="issue-body" id="${cardId}">${bodyContent}</div></div>`;
 }
 
 // 신규 /code-review 스키마: votes.json = {round, all_issues, agreed_changes:[{id,severity,fix}], deferred, rationale}
@@ -1648,39 +1456,6 @@ function showFile(path) {
 }
 
 // ============================================================
-// Continue Review
-// ============================================================
-async function continueReview() {
-  if (!currentSessionId) return;
-  const rounds = parseInt(document.getElementById('addRounds').value) || 1;
-  const directions = document.getElementById('continueDirections')?.value?.trim() || '';
-  const btn = event.currentTarget;
-  btn.disabled = true; btn.textContent = '시작 중...';
-  try {
-    // 추가 의견이 있으면 피드백으로 먼저 저장
-    if (directions) {
-      await fetch(`/api/code-review/session/${currentSessionId}/feedback`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: directions }),
-      });
-      document.getElementById('continueDirections').value = '';
-    }
-    await fetch('/api/code-review/continue', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sessionId: currentSessionId, rounds }),
-    });
-    await new Promise(r => setTimeout(r, 1000));
-    document.getElementById('continueBanner').style.display = 'none';
-    renderedRounds.clear();
-    startSSE(currentSessionId);
-    await loadSessions();
-  } catch {}
-  btn.disabled = false; btn.textContent = '⟳ 계속 리뷰';
-}
-
-// ============================================================
 // Tab switching
 // ============================================================
 function switchTab(name) {
@@ -1696,63 +1471,6 @@ function switchTab(name) {
 // ============================================================
 function esc(str) {
   return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-}
-
-// ============================================================
-// Feedback
-// ============================================================
-function autoResizeFeedback(el) {
-  el.style.height = 'auto';
-  el.style.height = Math.min(el.scrollHeight, 120) + 'px';
-}
-
-async function loadFeedback() {
-  if (!currentSessionId) return;
-  try {
-    const res = await fetch(`/api/code-review/session/${currentSessionId}/feedback`);
-    if (!res.ok) return;
-    const data = await res.json();
-    renderFeedbackList(data.feedbacks || []);
-  } catch {}
-}
-
-function renderFeedbackList(feedbacks) {
-  const el = document.getElementById('feedbackList');
-  if (!el) return;
-  if (!feedbacks.length) { el.innerHTML = ''; return; }
-  el.innerHTML = feedbacks.map((fb, i) => `
-    <div class="feedback-item ${fb.used ? 'used' : ''}">
-      <div style="flex:1">
-        <div class="feedback-item-text">${esc(fb.text)}</div>
-        <div class="feedback-item-meta">${fb.used ? '✓ 반영됨' + (fb.used_at_round ? ' (Round ' + fb.used_at_round + ')' : '') : '⏳ 다음 라운드에 반영 예정'}</div>
-      </div>
-      ${!fb.used ? `<button class="feedback-item-del" onclick="deleteFeedback(${i})" title="삭제">✕</button>` : ''}
-    </div>
-  `).join('');
-}
-
-async function submitFeedback() {
-  if (!currentSessionId) return;
-  const ta = document.getElementById('feedbackText');
-  const text = ta.value.trim();
-  if (!text) return;
-  try {
-    await fetch(`/api/code-review/session/${currentSessionId}/feedback`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text }),
-    });
-    ta.value = ''; ta.style.height = '';
-    await loadFeedback();
-  } catch {}
-}
-
-async function deleteFeedback(idx) {
-  if (!currentSessionId) return;
-  try {
-    await fetch(`/api/code-review/session/${currentSessionId}/feedback/${idx}`, { method: 'DELETE' });
-    await loadFeedback();
-  } catch {}
 }
 
 // ── Provider Status ────────────────────────────────────────────
