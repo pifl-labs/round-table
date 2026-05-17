@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Round Table Web UI — 토론 진행 상황 모니터링 서버
+// Round Table Web UI — 코드 리뷰 / 작업 파이프라인 모니터링 서버
 // Usage: node server.js [port]
 
 import { createServer } from "node:http";
@@ -48,16 +48,6 @@ const MIME = {
   ".log": "text/plain; charset=utf-8",
 };
 
-// 사용 가능한 에이전트 목록
-const AVAILABLE_AGENTS = [
-  { id: "analyst",    name: "시장 분석가",    description: "시장 데이터, 경쟁사 분석, WebSearch 활용" },
-  { id: "developer",  name: "기술 리드",      description: "코드베이스 확인, 기술적 실현 가능성" },
-  { id: "critic",     name: "악마의 변호인",  description: "반론, 리스크, 대안 제시" },
-  { id: "designer",   name: "UX 디자이너",    description: "사용자 경험, 플로우, 모바일 UX" },
-  { id: "financial",  name: "재무 분석가",    description: "비용, 수익, ROI, 손익분기점" },
-  { id: "strategist", name: "장기 전략가",    description: "포지셔닝, 경쟁 우위, 포트폴리오 영향" },
-];
-
 // --- Helper ---
 
 function safeRead(path) {
@@ -71,10 +61,6 @@ function safeJson(path) {
 }
 
 // --- API Handlers ---
-
-function listAgents() {
-  return AVAILABLE_AGENTS;
-}
 
 // CLI를 spawn으로 실행하고 결과 텍스트 반환 (timeout ms)
 function runCliProbe(bin, args, timeoutMs) {
@@ -295,117 +281,6 @@ function listProjects() {
   return projects;
 }
 
-function listSessions() {
-  if (!existsSync(SESSIONS_DIR)) return [];
-  return readdirSync(SESSIONS_DIR)
-    .filter((d) => {
-      if (d === "code-review") return false; // code-review 세션은 별도 디렉토리
-      if (d === "tasks") return false; // task 세션은 별도 디렉토리
-      if (d === "latest") return false; // 최근 세션 심링크(중복 제거)
-      try { return statSync(join(SESSIONS_DIR, d)).isDirectory(); } catch { return false; }
-    })
-    .sort()
-    .reverse()
-    .map((d) => {
-      const meta = safeJson(join(SESSIONS_DIR, d, "meta.json")) || {
-        topic: "Unknown", status: "unknown",
-      };
-      return { id: d, ...meta };
-    });
-}
-
-function getSession(id) {
-  const dir = join(SESSIONS_DIR, id);
-  if (!existsSync(dir)) return null;
-  const meta = safeJson(join(dir, "meta.json")) || {};
-
-  const files = {};
-  const collectMd = (d, prefix = "") => {
-    if (!existsSync(d)) return;
-    for (const f of readdirSync(d)) {
-      const full = join(d, f);
-      const rel = prefix ? `${prefix}/${f}` : f;
-      if (statSync(full).isDirectory()) {
-        collectMd(full, rel);
-      } else if (f.endsWith(".md")) {
-        files[rel] = safeRead(full) || "";
-      }
-    }
-  };
-  collectMd(dir);
-  return { ...meta, files };
-}
-
-function getLogs() {
-  // 토론 세션은 각 sessions/<id>/logs/ 내부에 로그를 보관.
-  // 가장 최근 토론 세션의 로그를 반환 (기존 UI 하위호환).
-  if (!existsSync(SESSIONS_DIR)) return {};
-  const sessions = readdirSync(SESSIONS_DIR)
-    .filter((d) => {
-      if (d === "code-review" || d === "tasks" || d === "latest") return false;
-      try { return statSync(join(SESSIONS_DIR, d)).isDirectory(); } catch { return false; }
-    })
-    .map((d) => {
-      try { return { id: d, mtime: statSync(join(SESSIONS_DIR, d)).mtimeMs }; }
-      catch { return null; }
-    })
-    .filter(Boolean)
-    .sort((a, b) => b.mtime - a.mtime);
-  if (!sessions.length) return {};
-  const logsDir = join(SESSIONS_DIR, sessions[0].id, "logs");
-  if (!existsSync(logsDir)) return {};
-  const logs = {};
-  for (const f of readdirSync(logsDir)) {
-    if (f.endsWith(".log")) {
-      logs[f.replace(".log", "")] = safeRead(join(logsDir, f)) || "";
-    }
-  }
-  return logs;
-}
-
-// 토론 라운드테이블(orchestrator.sh)은 종료/archive 되었습니다.
-// 웹 트리거는 비활성 — 기존 세션 모니터링 라우트는 그대로 동작합니다.
-const DEBATE_RETIRED = {
-  error: "토론 라운드테이블은 종료되었습니다 (orchestrator.sh archived). 코드 개선은 터미널에서 /code-review 스킬을 사용하세요.",
-};
-
-function startDebate() {
-  return DEBATE_RETIRED;
-}
-
-function startDebateWithId() {
-  return DEBATE_RETIRED;
-}
-
-// --- SSE Log Streaming ---
-
-function streamLogs(res) {
-  res.writeHead(200, {
-    "Content-Type": "text/event-stream",
-    "Cache-Control": "no-cache",
-    Connection: "keep-alive",
-    "Access-Control-Allow-Origin": "*",
-  });
-
-  const sendLogs = () => {
-    const logs = getLogs();
-    res.write(`data: ${JSON.stringify(logs)}\n\n`);
-  };
-  const sendSessions = () => {
-    const sessions = listSessions().slice(0, 5);
-    res.write(`event: sessions\ndata: ${JSON.stringify(sessions)}\n\n`);
-  };
-
-  sendLogs();
-  const logInterval = setInterval(sendLogs, 2000);
-  const sessionInterval = setInterval(sendSessions, 3000);
-
-  res.on("close", () => {
-    clearInterval(logInterval);
-    clearInterval(sessionInterval);
-  });
-}
-
 // --- Code Review API Handlers ---
 
 function listCodeReviewSessions() {
@@ -592,7 +467,6 @@ async function registerBotCommands() {
   try {
     await telegramPost("setMyCommands", {
       commands: [
-        { command: "debate",   description: "🏴‍☠️ 전략 토론 시작" },
         { command: "review",   description: "🔍 코드 리뷰 시작" },
         { command: "task",     description: "🔧 작업 파이프라인 시작" },
         { command: "feedback", description: "💬 진행 중 세션에 의견 등록" },
@@ -613,30 +487,12 @@ const ROUNDS_KB = [[
   { text: "직접 입력", callback_data: "rounds:custom" },
 ]];
 
-const AGENTS_KB = [
-  [{ text: "1️⃣ 기본 3명 (시장/기술/비판)", callback_data: "agents:analyst,developer,critic" }],
-  [{ text: "2️⃣ 전략팀 5명 (시장/기술/비판/디자인/전략)", callback_data: "agents:analyst,developer,critic,designer,strategist" }],
-  [{ text: "3️⃣ 전체 6명 (전 전문가)", callback_data: "agents:analyst,developer,critic,designer,financial,strategist" }],
-  [{ text: "4️⃣ 직접 입력...", callback_data: "agents:custom" }],
-];
-
 const AGENTCOUNT_KB = [[
   { text: "3명", callback_data: "agentcount:3" },
   { text: "5명", callback_data: "agentcount:5" },
   { text: "7명", callback_data: "agentcount:7" },
   { text: "직접 입력", callback_data: "agentcount:custom" },
 ]];
-
-// Wizard: start debate flow
-async function startDebateFlow(chatId, topicInline) {
-  if (topicInline) {
-    convState.set(chatId, { cmd: "debate", step: "rounds", params: { topic: topicInline } });
-    await sendTelegram(chatId, `🏴‍☠️ *토론 주제:* ${topicInline}\n\n몇 라운드로 진행할까요?`, ROUNDS_KB);
-  } else {
-    convState.set(chatId, { cmd: "debate", step: "topic", params: {} });
-    await sendTelegram(chatId, "🏴‍☠️ *Round Table 토론*\n\n토론 주제를 입력해 주세요.\n\n_예: PiPi Words 지금 당장 출시해야 할까?_");
-  }
-}
 
 // Wizard: start review flow
 async function startReviewFlow(chatId, goalInline) {
@@ -662,17 +518,12 @@ async function startTaskFlow(chatId, taskInline) {
 
 // Wizard: start feedback flow (show active session list)
 async function startFeedbackFlow(chatId) {
-  const debateSessions = listSessions().filter(s => ["running","completed"].includes(s.status)).slice(0, 4);
   const crSessions = listCodeReviewSessions().filter(s => ["running","completed"].includes(s.status)).slice(0, 4);
-  if (!debateSessions.length && !crSessions.length) {
+  if (!crSessions.length) {
     await sendTelegram(chatId, "❌ 진행 중이거나 최근 완료된 세션이 없습니다.");
     return;
   }
   const kb = [];
-  for (const s of debateSessions) {
-    const label = `🏴 ${(s.topic||"").slice(0,35)} (${s.status === "running" ? "진행중" : "완료"})`;
-    kb.push([{ text: label, callback_data: `fb_session:${s.id}` }]);
-  }
   for (const s of crSessions) {
     const label = `🔍 ${(s.topic||"").slice(0,35)} (${s.status === "running" ? "진행중" : "완료"})`;
     kb.push([{ text: label, callback_data: `fb_session:${s.id}` }]);
@@ -693,30 +544,11 @@ async function handleCallbackQuery(chatId, data) {
       await sendTelegram(chatId, "라운드 수를 직접 입력해 주세요 (1~30):");
     } else {
       state.params.rounds = parseInt(val);
-      if (state.cmd === "debate") {
-        state.step = "agents";
-        await sendTelegram(chatId, `✅ ${val}라운드\n\n에이전트를 선택해 주세요:`, AGENTS_KB);
-      } else {
-        state.step = "agentcount";
-        await sendTelegram(chatId, `✅ ${val}라운드\n\n에이전트 수를 선택해 주세요:`, AGENTCOUNT_KB);
-      }
+      state.step = "agentcount";
+      await sendTelegram(chatId, `✅ ${val}라운드\n\n에이전트 수를 선택해 주세요:`, AGENTCOUNT_KB);
     }
     return;
   }
-
-  if (data.startsWith("agents:")) {
-    if (!state) return;
-    const val = data.slice(7);
-    if (val === "custom") {
-      state.step = "agents_custom";
-      await sendTelegram(chatId, "에이전트를 쉼표로 구분해 입력해 주세요:\n\n_analyst, developer, critic, designer, financial, strategist_");
-    } else {
-      state.params.agents = val;
-      await launchDebate(chatId, state.params);
-    }
-    return;
-  }
-
   if (data.startsWith("agentcount:")) {
     if (!state) return;
     const val = data.slice(11);
@@ -748,29 +580,6 @@ async function handleConvText(chatId, text) {
   const state = convState.get(chatId);
   if (!state) return false;
   const { cmd, step, params } = state;
-
-  if (cmd === "debate") {
-    if (step === "topic") {
-      params.topic = text;
-      state.step = "rounds";
-      await sendTelegram(chatId, `🏴‍☠️ 주제: *${text}*\n\n몇 라운드로 진행할까요?`, ROUNDS_KB);
-      return true;
-    }
-    if (step === "rounds_custom") {
-      const n = parseInt(text);
-      if (isNaN(n) || n < 1 || n > 30) { await sendTelegram(chatId, "❌ 1~30 사이 숫자를 입력해 주세요."); return true; }
-      params.rounds = n;
-      state.step = "agents";
-      await sendTelegram(chatId, `✅ ${n}라운드\n\n에이전트를 선택해 주세요:`, AGENTS_KB);
-      return true;
-    }
-    if (step === "agents_custom") {
-      params.agents = text.replace(/\s/g, "");
-      await launchDebate(chatId, params);
-      return true;
-    }
-  }
-
   if (cmd === "review") {
     if (step === "goal") {
       params.topic = text;
@@ -813,9 +622,8 @@ async function handleConvText(chatId, text) {
 
   if (cmd === "feedback" && step === "text") {
     const sessionId = params.sessionId;
-    const debateDir = join(SESSIONS_DIR, sessionId);
     const crDir = join(CR_SESSIONS_DIR, sessionId);
-    const dir = existsSync(debateDir) ? debateDir : existsSync(crDir) ? crDir : null;
+    const dir = existsSync(crDir) ? crDir : null;
     convState.delete(chatId);
     if (dir) {
       saveFeedback(dir, text);
@@ -828,21 +636,6 @@ async function handleConvText(chatId, text) {
 
   return false;
 }
-
-// Launch debate and notify
-async function launchDebate(chatId, params) {
-  convState.delete(chatId);
-  const { topic, rounds = 2, agents = "analyst,developer,critic", projectDir = null } = params;
-  const result = startDebateWithId({ topic, rounds, agents, projectDir, telegramChatId: chatId });
-  if (result.error) {
-    await sendTelegram(chatId, `ℹ️ ${result.error}`);
-    return;
-  }
-  await sendTelegram(chatId,
-    `🏴‍☠️ *토론 시작!*\n\n📌 주제: ${topic}\n⏱ 라운드: ${rounds}\n👥 에이전트: ${agents}\n🆔 \`${result.sessionId}\`\n\n완료되면 결과를 전달해 드립니다.`
-  );
-}
-
 // Launch code review and notify
 async function launchReview(chatId, params) {
   convState.delete(chatId);
@@ -933,10 +726,7 @@ async function pollTelegram() {
       if (text.startsWith("/") && convState.has(chatId)) convState.delete(chatId);
 
       // Command dispatch
-      if (text.startsWith("/debate")) {
-        const inline = text.slice(7).trim();
-        await startDebateFlow(chatId, inline || null);
-      } else if (text.startsWith("/review")) {
+      if (text.startsWith("/review")) {
         const inline = text.slice(7).trim();
         await startReviewFlow(chatId, inline || null);
       } else if (text.startsWith("/task")) {
@@ -945,26 +735,21 @@ async function pollTelegram() {
       } else if (text.startsWith("/feedback")) {
         await startFeedbackFlow(chatId);
       } else if (text === "/status") {
-        const running = listSessions().filter(s => s.status === "running").slice(0, 5);
         const crRunning = listCodeReviewSessions().filter(s => ["running","generating-agents"].includes(s.status)).slice(0, 5);
         const taskRunning = listTaskSessions().filter(s => ["running","generating-pipeline","rating"].includes(s.status)).slice(0, 5);
         let t = "📊 *진행 중인 세션*\n\n";
-        if (running.length) t += "*토론:*\n" + running.map(s => `• ${(s.topic||"").slice(0,50)}`).join("\n") + "\n\n";
         if (crRunning.length) t += "*코드 리뷰:*\n" + crRunning.map(s => `• ${(s.topic||"").slice(0,50)}`).join("\n") + "\n\n";
         if (taskRunning.length) t += "*작업 파이프라인:*\n" + taskRunning.map(s => `• ${(s.task||"").slice(0,50)}`).join("\n");
-        if (!running.length && !crRunning.length && !taskRunning.length) t = "진행 중인 세션이 없습니다.";
+        if (!crRunning.length && !taskRunning.length) t = "진행 중인 세션이 없습니다.";
         await sendTelegram(chatId, t);
       } else if (text === "/list") {
-        const recent = listSessions().slice(0, 3);
         const crRecent = listCodeReviewSessions().slice(0, 3);
         let t = "📋 *최근 세션*\n\n";
-        if (recent.length) t += "*토론:*\n" + recent.map(s => `• ${(s.topic||"").slice(0,40)} — ${s.status}`).join("\n") + "\n\n";
         if (crRecent.length) t += "*코드 리뷰:*\n" + crRecent.map(s => `• ${(s.topic||"").slice(0,40)} — ${s.status}`).join("\n");
         await sendTelegram(chatId, t || "세션이 없습니다.");
       } else if (text === "/help") {
         await sendTelegram(chatId,
           `🏴‍☠️ *Round Table 명령어*\n\n` +
-          `/debate — 🏴 전략 토론 시작\n` +
           `/review — 🔍 코드 리뷰 시작\n` +
           `/task — 🔧 작업 파이프라인 시작\n` +
           `/feedback — 💬 진행 중 세션에 의견 등록\n` +
@@ -980,18 +765,6 @@ async function pollTelegram() {
 
 async function checkAndNotifySessions() {
   if (!TELEGRAM_TOKEN) return;
-  for (const s of listSessions()) {
-    if (s.status !== "completed") continue;
-    const key = `debate-${s.id}`;
-    if (notifiedSessions.has(key)) continue;
-    const chatFile = join(SESSIONS_DIR, s.id, ".telegram");
-    if (!existsSync(chatFile)) continue;
-    notifiedSessions.add(key);
-    const chatId = readFileSync(chatFile, "utf-8").trim();
-    const conclusion = safeRead(join(SESSIONS_DIR, s.id, "conclusion.md")) || safeRead(join(SESSIONS_DIR, s.id, "final", "synthesis.md")) || "";
-    const summary = conclusion.slice(0, 800) + (conclusion.length > 800 ? "\n\n_(전체 결론은 웹 UI에서 확인하세요)_" : "");
-    await sendTelegram(chatId, `🏴‍☠️ *토론 완료!*\n\n토픽: ${(s.topic||"").slice(0,100)}\n\n${summary}`);
-  }
   for (const s of listCodeReviewSessions()) {
     if (s.status !== "completed") continue;
     const key = `cr-${s.id}`;
@@ -1292,20 +1065,7 @@ const server = createServer((req, res) => {
     return;
   }
 
-  if (path.match(/^\/api\/session\/[^/]+$/) && req.method === "DELETE") {
-    const id = path.split("/")[3];
-    if (!id || !/^\d{8}_\d{6}$/.test(id)) return json({ error: "Invalid session id" }, 400);
-    const dir = join(SESSIONS_DIR, id);
-    if (!existsSync(dir)) return json({ error: "Not found" }, 404);
-    try {
-      rmSync(dir, { recursive: true, force: true });
-      return json({ deleted: true, id });
-    } catch (e) { return json({ error: e.message }, 500); }
-  }
-
-  if (path === "/api/agents") return json(listAgents());
   if (path === "/api/projects") return json(listProjects());
-  if (path === "/api/sessions") return json(listSessions());
   if (path === "/api/provider-status") return json(getProviderStatus());
 
   // Code Review API
@@ -1414,35 +1174,6 @@ const server = createServer((req, res) => {
     return;
   }
 
-  // Debate feedback API
-  if (path.match(/^\/api\/session\/[^/]+\/feedback$/) && req.method === "GET") {
-    const id = path.split("/")[3];
-    const dir = join(SESSIONS_DIR, id);
-    return existsSync(dir) ? json(getFeedback(dir)) : json({ error: "Not found" }, 404);
-  }
-  if (path.match(/^\/api\/session\/[^/]+\/feedback$/) && req.method === "POST") {
-    const id = path.split("/")[3];
-    const dir = join(SESSIONS_DIR, id);
-    if (!existsSync(dir)) return json({ error: "Not found" }, 404);
-    let body = "";
-    req.on("data", c => body += c);
-    req.on("end", () => {
-      try {
-        const { text } = JSON.parse(body);
-        if (!text?.trim()) return json({ error: "text is required" }, 400);
-        return json(saveFeedback(dir, text.trim()));
-      } catch(e) { return json({ error: e.message }, 400); }
-    });
-    return;
-  }
-  if (path.match(/^\/api\/session\/[^/]+\/feedback\/\d+$/) && req.method === "DELETE") {
-    const parts = path.split("/");
-    const id = parts[3]; const idx = parseInt(parts[5]);
-    const dir = join(SESSIONS_DIR, id);
-    if (!existsSync(dir)) return json({ error: "Not found" }, 404);
-    return deleteFeedbackItem(dir, idx) ? json({ deleted: true }) : json({ error: "Cannot delete" }, 400);
-  }
-
   // Code review feedback API
   if (path.match(/^\/api\/code-review\/session\/[^/]+\/feedback$/) && req.method === "GET") {
     const id = path.split("/")[4];
@@ -1470,35 +1201,6 @@ const server = createServer((req, res) => {
     const dir = join(CR_SESSIONS_DIR, id);
     if (!existsSync(dir)) return json({ error: "Not found" }, 404);
     return deleteFeedbackItem(dir, idx) ? json({ deleted: true }) : json({ error: "Cannot delete" }, 400);
-  }
-
-  if (path.startsWith("/api/session/")) {
-    const id = path.split("/")[3];
-    const session = getSession(id);
-    return session ? json(session) : json({ error: "Not found" }, 404);
-  }
-
-  if (path === "/api/logs") return json(getLogs());
-  if (path === "/api/logs/stream") return streamLogs(res);
-
-  if (path === "/api/continue" && req.method === "POST") {
-    // 토론 라운드테이블(orchestrator.sh) archive — 트리거 비활성
-    return json(DEBATE_RETIRED, 410);
-  }
-
-  if (path === "/api/start" && req.method === "POST") {
-    let body = "";
-    req.on("data", (c) => (body += c));
-    req.on("end", () => {
-      try {
-        const params = JSON.parse(body);
-        if (!params.topic?.trim()) return json({ error: "topic is required" }, 400);
-        return json(startDebate(params));
-      } catch (e) {
-        return json({ error: e.message }, 400);
-      }
-    });
-    return;
   }
 
   // Static files
