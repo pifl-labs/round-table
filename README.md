@@ -29,7 +29,7 @@ Round N: (반복)
 ## 설치
 
 ```bash
-git clone https://github.com/your-org/round-table.git
+git clone https://github.com/pifl-labs/round-table.git
 cd round-table
 
 # 환경변수 설정
@@ -155,6 +155,12 @@ round-table/
 ### 리스크 완화 방안
 ### 의사결정 번복 조건
 ```
+
+---
+
+## PiFl Labs
+
+다른 공개 앱과 제품은 [PiFl Labs 포트폴리오](https://pifl-labs.com/)에서 확인할 수 있습니다.
 
 ---
 
